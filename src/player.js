@@ -22,10 +22,10 @@ const Player = {
   trailTimer:    0,
 
   // Combo attack (left click)
-  comboCount:   0,     // hits landed in current chain (0–2 before finisher)
-  comboTimer:   0,     // window remaining to land next hit
-  COMBO_WINDOW: 0.65,
-  ATTACK_CD:    0.22,
+  comboCount:     0,
+  comboTimer:     0,
+  COMBO_WINDOW:   0.65,
+  ATTACK_CD:      0.22,
   attackCooldown: 0,
 
   // Heavy attack (right click)
@@ -41,19 +41,11 @@ const Player = {
   init() {
     this.x = 200; this.y = 360
     this.vx = 0;  this.vy = 0
-    this.hp = RunState.maxHp
-    this.maxHp = RunState.maxHp
-    this.alive = true
-    this.invincible = 0
-    this.dodging = false
-    this.dodgeTimer = 0
-    this.dodgeCooldown = 0
-    this.attackCooldown = 0
-    this.comboCount = 0
-    this.comboTimer = 0
-    this.isCharging = false
-    this.chargeTimer = 0
-    this.heavyCooldown = 0
+    this.hp = RunState.maxHp; this.maxHp = RunState.maxHp
+    this.alive = true; this.invincible = 0
+    this.dodging = false; this.dodgeTimer = 0; this.dodgeCooldown = 0
+    this.attackCooldown = 0; this.comboCount = 0; this.comboTimer = 0
+    this.isCharging = false; this.chargeTimer = 0; this.heavyCooldown = 0
     // glass_heart: enter room at Critical
     if (RunState.items.includes('glass_heart')) Tempo.value = 90
   },
@@ -66,76 +58,60 @@ const Player = {
     this.dodgeCooldown  = Math.max(0, this.dodgeCooldown  - dt)
     this.heavyCooldown  = Math.max(0, this.heavyCooldown  - dt)
 
-    // Expire combo window
     if (this.comboTimer > 0) {
       this.comboTimer -= dt
       if (this.comboTimer <= 0) this.comboCount = 0
     }
 
-    // Heavy attack charge fires when timer runs out
     if (this.isCharging) {
       this.chargeTimer -= dt
-      if (this.chargeTimer <= 0) {
-        this.isCharging = false
-        this._fireHeavy()
-      }
+      if (this.chargeTimer <= 0) { this.isCharging = false; this._fireHeavy() }
     }
 
-    // ── Left click: combo chain ───────────────────────────────────────────────
     if (mouseClicked && this.attackCooldown <= 0 && !this.dodging && !this.isCharging) {
       this._tryComboAttack()
     }
 
-    // ── Right click: heavy strike ─────────────────────────────────────────────
     if (rightClicked && this.heavyCooldown <= 0 && !this.dodging && !this.isCharging) {
-      this.isCharging  = true
-      this.chargeTimer = this.CHARGE_DUR
-      rightClicked     = false
+      this.isCharging = true; this.chargeTimer = this.CHARGE_DUR; rightClicked = false
     }
 
-    // ── Dodge (Space) — disabled at Critical ──────────────────────────────────
+    // Dodge (Space) — disabled at Critical
     if (!this.dodging && keys.has(' ') && this.dodgeCooldown <= 0 && Tempo.value < 90) {
-      const mx = (keys.has('a') || keys.has('arrowleft'))  ? -1
-               : (keys.has('d') || keys.has('arrowright')) ?  1 : 0
-      const my = (keys.has('w') || keys.has('arrowup'))    ? -1
-               : (keys.has('s') || keys.has('arrowdown'))  ?  1 : 0
+      const mx = (keys.has('a') || keys.has('arrowleft'))  ? -1 : (keys.has('d') || keys.has('arrowright')) ?  1 : 0
+      const my = (keys.has('w') || keys.has('arrowup'))    ? -1 : (keys.has('s') || keys.has('arrowdown'))  ?  1 : 0
       let ddx = mx, ddy = my
       if (ddx === 0 && ddy === 0) { ddx = mouseX - this.x; ddy = mouseY - this.y }
       const dl = Math.sqrt(ddx * ddx + ddy * ddy)
       if (dl > 0.1) {
-        this.dodgeDirX = ddx / dl
-        this.dodgeDirY = ddy / dl
-        this.dodging   = true
-        this.dodgeTimer    = this.DODGE_DUR
-        this.dodgeCooldown = this.DODGE_CD
-        this.invincible    = this.DODGE_DUR
-        this.trailTimer    = 0
+        this.dodgeDirX = ddx / dl; this.dodgeDirY = ddy / dl
+        this.dodging = true; this.dodgeTimer = this.DODGE_DUR
+        this.dodgeCooldown = this.DODGE_CD; this.invincible = this.DODGE_DUR
+        this.trailTimer = 0
         if (this._isPerfectDodgeMoment()) {
           const dur = RunState.items.includes('precision') ? 0.8 : 0.4
-          slowMoTimer = dur
-          slowMoScale = 0.2
+          slowMoTimer = dur; slowMoScale = 0.2
           Tempo.onPerfectDodge()
           Effects.spawnPerfectDodge(this.x, this.y)
+          RunState.runStats.perfectDodges++
+          if (typeof Audio !== 'undefined') Audio.perfect()
         } else {
           Tempo.onDodge()
+          if (typeof Audio !== 'undefined') Audio.dodge()
         }
+        if (typeof UI !== 'undefined') UI.controlsDiscovered.add('dodge')
       }
     }
 
-    // ── Movement ──────────────────────────────────────────────────────────────
-    const speed = this.BASE_SPEED * Tempo.speedMultiplier()
+    // Movement
+    const speed = RunState.speed * Tempo.speedMultiplier()
 
     if (this.dodging) {
-      this.dodgeTimer -= dt
-      this.trailTimer -= dt
-      if (this.trailTimer <= 0) {
-        Effects.spawnTrail(this.x, this.y)
-        this.trailTimer = 0.04
-      }
+      this.dodgeTimer -= dt; this.trailTimer -= dt
+      if (this.trailTimer <= 0) { Effects.spawnTrail(this.x, this.y); this.trailTimer = 0.04 }
       this.x += this.dodgeDirX * this.DODGE_SPEED * dt
       this.y += this.dodgeDirY * this.DODGE_SPEED * dt
 
-      // Hot dash-attack / Cold Fury item: deal contact damage during dodge
       const doDashDmg = Tempo.value >= 70 || (RunState.items.includes('cold_fury') && Tempo.value < 30)
       if (doDashDmg) {
         for (const e of enemies) {
@@ -161,10 +137,10 @@ const Player = {
       if (keys.has('s') || keys.has('arrowdown'))  iy += 1
 
       if (ix !== 0 || iy !== 0) {
+        if (typeof UI !== 'undefined') UI.controlsDiscovered.add('move')
         const il = Math.sqrt(ix * ix + iy * iy)
         ix /= il; iy /= il
-        this.vx += ix * this.ACCEL * dt
-        this.vy += iy * this.ACCEL * dt
+        this.vx += ix * this.ACCEL * dt; this.vy += iy * this.ACCEL * dt
         const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy)
         if (spd > speed) { this.vx = (this.vx / spd) * speed; this.vy = (this.vy / spd) * speed }
       } else {
@@ -172,26 +148,19 @@ const Player = {
         const friction = Math.min(spd, this.FRICTION * dt)
         if (spd > 0) { this.vx -= (this.vx / spd) * friction; this.vy -= (this.vy / spd) * friction }
       }
-
-      this.x += this.vx * dt
-      this.y += this.vy * dt
+      this.x += this.vx * dt; this.y += this.vy * dt
     }
 
     const c = Room.clampToFloor(this.x, this.y, this.r)
     this.x = c.x; this.y = c.y
   },
 
-  // ── Combo attack (left click) ─────────────────────────────────────────────
   _tryComboAttack() {
     const RANGE = 85
+    if (typeof UI !== 'undefined') UI.controlsDiscovered.add('attack')
 
-    // Critical: pierce all targets in mouse direction
-    if (Tempo.value >= 90) {
-      this._tryPierceAttack(RANGE)
-      return
-    }
+    if (Tempo.value >= 90) { this._tryPierceAttack(RANGE); return }
 
-    // Find nearest enemy in range
     let nearest = null, nearestDist = Infinity
     for (const e of enemies) {
       if (!e.alive) continue
@@ -202,8 +171,7 @@ const Player = {
     if (!nearest) return
 
     this.attackCooldown = this.ATTACK_CD
-    this.comboCount++
-    this.comboTimer = this.COMBO_WINDOW
+    this.comboCount++; this.comboTimer = this.COMBO_WINDOW
 
     const isFinisher = this.comboCount >= 3
     let dmg = Math.round(RunState.power * Tempo.damageMultiplier() * (isFinisher ? 1.8 : 1.0))
@@ -212,27 +180,31 @@ const Player = {
     const killed = nearest.takeDamage(dmg)
     this._lastDmg = dmg
 
-    // Cold: stagger on every hit
     if (Tempo.value < 30 && nearest.alive) nearest.stagger(0.25)
 
     hitStopTimer = isFinisher ? 0.1 : 0.06
     Tempo.onComboHit(isFinisher ? 3 : this.comboCount)
-    if (killed) Tempo.onKill()
+    if (killed) {
+      Tempo.onKill()
+      // Shadow passive: kills at Critical trigger brief slow-mo
+      if (RunState.chosenClass === 'shadow' && Tempo.value >= 90) {
+        slowMoTimer = 0.18; slowMoScale = 0.12
+      }
+    }
+
+    if (typeof Audio !== 'undefined') Audio.hit()
 
     if (isFinisher) {
       Effects.spawnComboFinish(nearest.x, nearest.y)
-      this.comboCount = 0
-      this.comboTimer = 0
-      this.attackCooldown = this.ATTACK_CD * 1.4  // brief pause after finisher
+      this.comboCount = 0; this.comboTimer = 0
+      this.attackCooldown = this.ATTACK_CD * 1.4
     }
   },
 
-  // Critical pierce: hit all enemies in a ~70° cone toward mouse
   _tryPierceAttack(range) {
     const adx = mouseX - this.x, ady = mouseY - this.y
     const al  = Math.sqrt(adx * adx + ady * ady)
     if (al < 1) return
-
     this.attackCooldown = this.ATTACK_CD
     let anyHit = false
     for (const e of enemies) {
@@ -241,25 +213,19 @@ const Player = {
       const d  = Math.sqrt(dx * dx + dy * dy)
       if (d > range + e.r) continue
       const dot = (dx / d) * (adx / al) + (dy / d) * (ady / al)
-      if (dot < Math.cos(Math.PI * 0.39)) continue   // ~70° cone
-
+      if (dot < Math.cos(Math.PI * 0.39)) continue
       let dmg = Math.round(RunState.power * Tempo.damageMultiplier())
       if (RunState.items.includes('resonance') && Math.abs(Tempo.value - 50) <= 5) dmg *= 2
-
       const killed = e.takeDamage(dmg)
-      this._lastDmg = dmg
-      anyHit = true
+      this._lastDmg = dmg; anyHit = true
       if (killed) Tempo.onKill()
     }
-    if (anyHit) {
-      hitStopTimer = 0.08
-      Tempo.onComboHit(1)
-    }
+    if (anyHit) { hitStopTimer = 0.08; Tempo.onComboHit(1); if (typeof Audio !== 'undefined') Audio.hit() }
   },
 
-  // ── Heavy attack (right click, 0.28s charge) ─────────────────────────────
   _fireHeavy() {
     this.heavyCooldown = this.HEAVY_CD
+    if (typeof UI !== 'undefined') UI.controlsDiscovered.add('heavy')
     const RANGE = 95
     let nearest = null, nearestDist = Infinity
     for (const e of enemies) {
@@ -271,6 +237,7 @@ const Player = {
 
     if (!nearest) {
       Tempo.onHeavyMiss()
+      if (typeof Audio !== 'undefined') Audio.miss()
       return
     }
 
@@ -280,21 +247,16 @@ const Player = {
     const killed = nearest.takeDamage(dmg)
     this._lastDmg = dmg
 
-    // Cold: longer stagger on heavy hit
     if (Tempo.value < 30 && nearest.alive) nearest.stagger(0.5)
 
     hitStopTimer = 0.14
-    shakeIntensity = Math.max(shakeIntensity, 0.3)
-    shakeDuration  = 0.15
-    shakeElapsed   = 0
+    shakeIntensity = Math.max(shakeIntensity, 0.3); shakeDuration = 0.15; shakeElapsed = 0
 
     Tempo.onHeavyHit()
     if (killed) Tempo.onKill()
+    if (typeof Audio !== 'undefined') Audio.heavyHit()
   },
 
-  // ── Perfect dodge detection ───────────────────────────────────────────────
-  // Returns true if a threat is imminent (projectile heading toward player,
-  // or a melee enemy in attack range)
   _isPerfectDodgeMoment() {
     for (const p of projectiles) {
       if (!p.alive) continue
@@ -302,7 +264,7 @@ const Player = {
       const dist = Math.sqrt(dx * dx + dy * dy)
       if (dist > 100) continue
       const dot = (dx / dist) * p.dx + (dy / dist) * p.dy
-      if (dot > 0.5) return true   // heading our way
+      if (dot > 0.5) return true
     }
     for (const e of enemies) {
       if (!e.alive) continue
@@ -313,7 +275,6 @@ const Player = {
     return false
   },
 
-  // Echo item: repeat last attack at half damage
   _echoAttack() {
     if (!this._lastDmg) return
     const dmg = Math.max(1, Math.round(this._lastDmg * 0.5))
@@ -326,23 +287,33 @@ const Player = {
 
   takeDamage(amount) {
     if (!this.alive || this.invincible > 0) return
+    if (typeof Audio !== 'undefined') Audio.playerHit()
+
     // Critical state: one hit = instant death
     if (Tempo.value >= 90) {
-      RunState.hp = 0
-      this.alive  = false
-      gameState   = 'dead'
-      return
+      // Last Rites item: one final crash before death
+      if (RunState.items.includes('last_rites') && !RunState._lastRitesUsed) {
+        RunState._lastRitesUsed = true
+        if (Tempo.value >= 50) Tempo.manualCrash(this.x, this.y)
+      }
+      RunState.hp = 0; this.alive = false; gameState = 'dead'; return
     }
+
+    // Warden passive: taking damage builds Tempo
+    if (RunState.chosenClass === 'warden') Tempo._add(10)
+
     RunState.takeDamage(amount)
-    this.hp    = RunState.hp
-    this.maxHp = RunState.maxHp
-    shakeIntensity = Math.max(shakeIntensity, 0.45)
-    shakeDuration  = 0.2
-    shakeElapsed   = 0
+    this.hp = RunState.hp; this.maxHp = RunState.maxHp
+    shakeIntensity = Math.max(shakeIntensity, 0.45); shakeDuration = 0.2; shakeElapsed = 0
     this.invincible = 0.5
+
     if (RunState.hp <= 0) {
-      this.alive = false
-      gameState  = 'dead'
+      // Last Rites: one final crash before death
+      if (RunState.items.includes('last_rites') && !RunState._lastRitesUsed) {
+        RunState._lastRitesUsed = true
+        if (Tempo.value >= 50) Tempo.manualCrash(this.x, this.y)
+      }
+      this.alive = false; gameState = 'dead'
     }
   },
 
@@ -350,29 +321,21 @@ const Player = {
     if (!this.alive) return
     if (this.invincible > 0 && Math.floor(this.invincible / 0.08) % 2 === 0) return
 
-    // Charge ring — grows as charge builds
     if (this.isCharging) {
       const progress = 1 - this.chargeTimer / this.CHARGE_DUR
-      ctx.beginPath()
-      ctx.arc(this.x, this.y, this.r + 5 + progress * 10, 0, Math.PI * 2)
-      ctx.strokeStyle = `rgba(255,200,0,${progress.toFixed(2)})`
-      ctx.lineWidth = 2
-      ctx.stroke()
+      ctx.beginPath(); ctx.arc(this.x, this.y, this.r + 5 + progress * 10, 0, Math.PI * 2)
+      ctx.strokeStyle = `rgba(255,200,0,${progress.toFixed(2)})`; ctx.lineWidth = 2; ctx.stroke()
     }
 
     const col = Tempo.stateColor()
-    ctx.beginPath()
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2)
-    ctx.fillStyle = col
-    ctx.fill()
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2)
+    ctx.fillStyle = col; ctx.fill()
 
-    // Combo dots above player
+    // Combo dots
     if (this.comboCount > 0) {
       for (let i = 0; i < this.comboCount; i++) {
-        ctx.beginPath()
-        ctx.arc(this.x - 6 + i * 7, this.y - this.r - 10, 3, 0, Math.PI * 2)
-        ctx.fillStyle = col
-        ctx.fill()
+        ctx.beginPath(); ctx.arc(this.x - 6 + i * 7, this.y - this.r - 10, 3, 0, Math.PI * 2)
+        ctx.fillStyle = col; ctx.fill()
       }
     }
 
@@ -382,10 +345,8 @@ const Player = {
     if (al > 1) {
       ctx.beginPath()
       ctx.moveTo(this.x + (adx / al) * (this.r + 2), this.y + (ady / al) * (this.r + 2))
-      ctx.lineTo(this.x + (adx / al) * (this.r + 9), this.y + (ady / al) * (this.r + 9))
-      ctx.strokeStyle = col
-      ctx.lineWidth   = 3
-      ctx.stroke()
+      ctx.lineTo(this.x + (adx / al) * (this.r + 10), this.y + (ady / al) * (this.r + 10))
+      ctx.strokeStyle = col; ctx.lineWidth = 3; ctx.stroke()
     }
-  }
+  },
 }
