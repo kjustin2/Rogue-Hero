@@ -1,47 +1,104 @@
 // ── Tempo ─────────────────────────────────────────────────────────────────────
-// Central resource: raised by attacking/killing, lowered by dodging,
-// decays toward REST. Crashes at 100 — brief stagger, resets to crashReset.
+// The only resource. Everything reads from and writes to this one bar.
 const Tempo = {
   value: 50,
-  crashReset: 50,
+  crashReset: 45,
   isCrashed: false,
   REST: 50,
   DECAY_RATE: 8,
+  manualCrashRadiusBonus: 1.0,
 
   update(dt) {
     if (this.isCrashed) return
-    const metronome = RunState.items.includes('metronome') ? 2 : 1
+    const metronome = RunState.items.includes('metronome') ? 3 : 1
+    // Runaway item: no decay from Hot (70–99)
+    if (RunState.items.includes('runaway') && this.value >= 70 && this.value < 100) return
     const dir = this.REST - this.value
     if (Math.abs(dir) < 0.1) return
     this.value += Math.sign(dir) * this.DECAY_RATE * metronome * dt
     this.value = Math.max(0, Math.min(100, this.value))
   },
 
-  onAttack() { if (!this.isCrashed) this._add(5  * RunState.tempoGain) },
-  onKill()   { if (!this.isCrashed) this._add(10 * RunState.tempoGain) },
-  onDodge()  { if (!this.isCrashed) this._add(-15) },
+  // ── Callbacks ────────────────────────────────────────────────────────────────
+  onComboHit(hitNum) {
+    // hitNum: 1 or 2 = normal hit (+4), 3 = finisher (+15)
+    if (this.isCrashed) return
+    const gain = hitNum === 3 ? 15 : 4
+    this._add(gain * RunState.tempoGain)
+  },
+  onKill()         { if (!this.isCrashed) this._add(10 * RunState.tempoGain) },
+  onDodge()        { if (!this.isCrashed) this._add(-5) },
+  onPerfectDodge() { if (!this.isCrashed) this._add(10) },
+  onHeavyHit()     { if (!this.isCrashed) this._add(20 * RunState.tempoGain) },
+  onHeavyMiss()    { if (!this.isCrashed) this._add(8  * RunState.tempoGain) },
+  onDrained()      { if (!this.isCrashed) this._add(-20) },  // TempoVampire
+
+  // ── Manual crash (F key at 85+) ──────────────────────────────────────────────
+  manualCrash(px, py) {
+    if (this.isCrashed || this.value < 85) return false
+    const radius = 120 * this.manualCrashRadiusBonus
+    const dmg    = Math.round(RunState.power * this.damageMultiplier() * 2.5)
+    for (const e of enemies) {
+      if (!e.alive) continue
+      const dx = e.x - px, dy = e.y - py
+      if (dx * dx + dy * dy < (radius + e.r) * (radius + e.r)) {
+        e.takeDamage(dmg)
+      }
+    }
+    Effects.spawnCrashBurst(px, py, radius)
+    this._doCrash(0.15, 0.25, 0.7)
+    return true
+  },
 
   _add(amount) {
     this.value = Math.max(0, Math.min(100, this.value + amount))
-    if (this.value >= 100) this._crash()
+    if (this.value >= 100) this._triggerAccidentalCrash()
   },
 
-  _crash() {
-    this.isCrashed = true
-    this.value = this.crashReset
-    hitStopTimer   = 0.2
-    shakeIntensity = 0.8
-    shakeDuration  = 0.3
-    shakeElapsed   = 0
-    // Unfreeze after real 300ms (hitStop doesn't pause setTimeout)
-    setTimeout(() => { this.isCrashed = false }, 300)
+  _triggerAccidentalCrash() {
+    // Echo item: repeat last attack at half damage before crashing
+    if (RunState.items.includes('echo') && typeof Player !== 'undefined') {
+      Player._echoAttack()
+    }
+    // Smaller burst than manual crash
+    const radius = 80 * this.manualCrashRadiusBonus
+    const dmg = Math.round(RunState.power * this.damageMultiplier() * 1.5)
+    if (typeof Player !== 'undefined') {
+      for (const e of enemies) {
+        if (!e.alive) continue
+        const dx = e.x - Player.x, dy = e.y - Player.y
+        if (dx * dx + dy * dy < (radius + e.r) * (radius + e.r)) {
+          e.takeDamage(dmg)
+        }
+      }
+      Effects.spawnCrashBurst(Player.x, Player.y, radius)
+    }
+    this._doCrash(0.2, 0.3, 0.8)
   },
 
+  _doCrash(hitStopDur, shakeDur, shakeIntens) {
+    this.isCrashed  = true
+    this.value      = this.crashReset
+    hitStopTimer    = hitStopDur
+    shakeIntensity  = shakeIntens
+    shakeDuration   = shakeDur
+    shakeElapsed    = 0
+    setTimeout(() => { this.isCrashed = false }, shakeDur * 1000 + 50)
+  },
+
+  // ── Multipliers ──────────────────────────────────────────────────────────────
   damageMultiplier() {
     if (this.value < 30) return 0.7
     if (this.value < 70) return 1.0
     if (this.value < 90) return 1.3
-    return 1.6
+    return 1.8
+  },
+
+  speedMultiplier() {
+    if (this.value >= 90) return 1.0   // Critical: chaos is enough
+    if (this.value >= 70) return 1.2   // Hot: +20%
+    if (this.value <  30) return 0.9   // Cold: -10%
+    return 1.0
   },
 
   stateName() {

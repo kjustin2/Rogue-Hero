@@ -10,19 +10,22 @@ const FLOOR_Y2  = CANVAS_H - WALL   // 656
 
 // ── Item definitions ──────────────────────────────────────────────────────────
 const ITEM_POOL = [
-  { id: 'volatile_soles', name: 'Volatile Soles', desc: 'Pressure radius +50%' },
-  { id: 'metronome',      name: 'Metronome',      desc: 'Tempo decays 2x faster' },
-  { id: 'anchor_stone',   name: 'Anchor Stone',   desc: 'Pressure builds 1.5x faster' },
-  { id: 'iron_pulse',     name: 'Iron Pulse',     desc: 'Max HP +2, restore 2 HP' },
-  { id: 'cold_blood',     name: 'Cold Blood',     desc: 'Kills at COLD restore 1 HP' },
-  { id: 'surge_coil',     name: 'Surge Coil',     desc: 'Tempo Crash resets to 60' },
+  { id: 'metronome',   name: 'Metronome',   desc: 'Tempo decays 3× faster — easier zone control' },
+  { id: 'resonance',   name: 'Resonance',   desc: 'At exactly 50 Tempo (±5), your damage is doubled' },
+  { id: 'runaway',     name: 'Runaway',     desc: 'Tempo no longer decays from Hot — ride it forever' },
+  { id: 'iron_pulse',  name: 'Iron Pulse',  desc: 'Max HP +2, restore 2 HP' },
+  { id: 'cold_fury',   name: 'Cold Fury',   desc: 'At Cold Tempo, dash deals damage on contact' },
+  { id: 'surge_coil',  name: 'Surge Coil',  desc: 'Manual Crash radius +60%' },
+  { id: 'echo',        name: 'Echo',        desc: 'On Tempo Crash, your last attack repeats at half damage' },
+  { id: 'precision',   name: 'Precision',   desc: 'Perfect Dodge slow-mo lasts twice as long' },
+  { id: 'glass_heart', name: 'Glass Heart', desc: 'Start each room at 90 Tempo — Critical from first swing' },
 ]
 
 // ── RunState ──────────────────────────────────────────────────────────────────
 const RunState = {
   hp: 6, maxHp: 6,
   speed: 200, power: 1.0,
-  tempoGain: 1.0, pressureRadius: 64,
+  tempoGain: 1.0,
   xp: 0, level: 1, xpToNext: 10,
   floor: 1, room: 0,
   items: [],
@@ -40,22 +43,21 @@ const RunState = {
     switch (id) {
       case 'berserker':
         this.maxHp = 5;  this.hp = 5;  this.speed = 190
-        this.power = 1.2; this.tempoGain = 1.3; this.pressureRadius = 56; break
+        this.power = 1.2; this.tempoGain = 1.3; break
       case 'shadow':
         this.maxHp = 5;  this.hp = 5;  this.speed = 240
-        this.power = 1.0; this.tempoGain = 1.0; this.pressureRadius = 80; break
+        this.power = 1.0; this.tempoGain = 1.0; break
       case 'warden':
         this.maxHp = 9;  this.hp = 9;  this.speed = 160
-        this.power = 0.9; this.tempoGain = 0.7; this.pressureRadius = 64; break
+        this.power = 0.9; this.tempoGain = 0.7; break
       default:
         this.maxHp = 6;  this.hp = 6;  this.speed = 200
-        this.power = 1.0; this.tempoGain = 1.0; this.pressureRadius = 64
+        this.power = 1.0; this.tempoGain = 1.0
     }
   },
 
   takeDamage(amount) {
     this.hp = Math.max(0, this.hp - amount)
-    if (this.hp <= 0) gameState = 'dead'
   },
 
   heal(amount) {
@@ -74,9 +76,8 @@ const RunState = {
   addItem(itemId) {
     this.items.push(itemId)
     switch (itemId) {
-      case 'volatile_soles': this.pressureRadius *= 1.5; break
-      case 'iron_pulse':     this.maxHp += 2; this.hp = Math.min(this.hp + 2, this.maxHp); break
-      case 'surge_coil':     Tempo.crashReset = 60; break
+      case 'iron_pulse':  this.maxHp += 2; this.hp = Math.min(this.hp + 2, this.maxHp); break
+      case 'surge_coil':  Tempo.manualCrashRadiusBonus = 1.6; break
     }
   }
 }

@@ -14,10 +14,15 @@ var shakeElapsed    = 0
 var shakeOffsetX    = 0
 var shakeOffsetY    = 0
 
+// Slow-mo (perfect dodge)
+var slowMoTimer = 0
+var slowMoScale = 1.0
+
 var keys         = new Set()
 var mouseX       = 0
 var mouseY       = 0
 var mouseClicked = false
+var rightClicked = false
 
 var draftChoices = []
 
@@ -27,7 +32,6 @@ canvas.width  = CANVAS_W
 canvas.height = CANVAS_H
 const ctx = canvas.getContext('2d')
 
-// Scale mouseX/Y to canvas logical coords
 function canvasMousePos(e) {
   const rect = canvas.getBoundingClientRect()
   const scaleX = CANVAS_W / rect.width
@@ -50,6 +54,11 @@ window.addEventListener('keydown', e => {
     if (idx >= 0 && idx < draftChoices.length) pickDraftItem(idx)
   }
 
+  // Manual Crash (F key)
+  if (k === 'f' && gameState === 'playing' && !Tempo.isCrashed && Tempo.value >= 85) {
+    Tempo.manualCrash(Player.x, Player.y)
+  }
+
   // Restart
   if (k === 'r' && (gameState === 'dead' || gameState === 'win')) {
     startGame()
@@ -62,7 +71,8 @@ window.addEventListener('mousemove', canvasMousePos)
 canvas.addEventListener('mousedown', e => {
   canvasMousePos(e)
   if (gameState === 'playing') {
-    mouseClicked = true
+    if (e.button === 0) mouseClicked = true
+    if (e.button === 2) rightClicked = true
   }
   if (gameState === 'draft') {
     const cardW = 280, cardH = 160, gap = 40
@@ -78,17 +88,17 @@ canvas.addEventListener('mousedown', e => {
   if (gameState === 'menu') {
     showClassSelect()
   }
-  if ((gameState === 'dead' || gameState === 'win') && e.button === 0) {
-    // click to restart handled via drawDead text, but also support click
-  }
 })
+
+// Suppress context menu so right-click works in-game
+canvas.addEventListener('contextmenu', e => e.preventDefault())
 
 // ── Game flow ──────────────────────────────────────────────────────────────────
 function startGame() {
-  // Default to berserker for now; class select can be layered in
   RunState.startRun('berserker')
   Tempo.value = 50
   Tempo.isCrashed = false
+  Tempo.manualCrashRadiusBonus = 1.0
   Room.load(0)
   Player.init()
   UI.vignetteAlpha = 0
@@ -96,13 +106,11 @@ function startGame() {
 }
 
 function showClassSelect() {
-  // For now just start immediately — class select screen is a future feature
   startGame()
 }
 
 function openDraft() {
   gameState = 'draft'
-  // Pick 3 random unique items
   const pool = [...ITEM_POOL]
   draftChoices = []
   for (let i = 0; i < 3 && pool.length > 0; i++) {
@@ -114,13 +122,14 @@ function openDraft() {
 function pickDraftItem(index) {
   if (index < 0 || index >= draftChoices.length) return
   RunState.addItem(draftChoices[index].id)
-  Player.hp = RunState.hp
+  Player.hp    = RunState.hp
   Player.maxHp = RunState.maxHp
 
   const nextRoom = Room.index + 1
   if (nextRoom >= 3) {
     gameState = 'win'
   } else {
+    // Tempo CARRIES into next room — don't reset it
     Room.load(nextRoom)
     Player.init()
     gameState = 'playing'
@@ -142,20 +151,29 @@ function loop(timestamp) {
   }
 
   draw()
-  mouseClicked = false   // reset AFTER update() has had a chance to read it
+  mouseClicked = false
+  rightClicked = false
 }
 
 function update(realDt) {
-  // Hit-stop: skip game logic but still tick the timer
+  // Hit-stop: freeze game logic
   if (hitStopTimer > 0) {
     hitStopTimer = Math.max(0, hitStopTimer - realDt)
     return
   }
-  const dt = realDt
 
-  // Shake
+  // Slow-mo (perfect dodge) — scale game dt, not real dt
+  let dt = realDt
+  if (slowMoTimer > 0) {
+    slowMoTimer = Math.max(0, slowMoTimer - realDt)
+    dt = realDt * slowMoScale
+  } else {
+    slowMoScale = 1.0
+  }
+
+  // Camera shake (uses real dt for consistent feel)
   if (shakeElapsed < shakeDuration) {
-    shakeElapsed += dt
+    shakeElapsed += realDt
     const decay = 1 - shakeElapsed / shakeDuration
     shakeOffsetX = (Math.random() * 2 - 1) * shakeIntensity * decay * 14
     shakeOffsetY = (Math.random() * 2 - 1) * shakeIntensity * decay * 14
@@ -166,20 +184,17 @@ function update(realDt) {
 
   Tempo.update(dt)
   UI.update(dt)
-  Pressure.update(dt)
   Player.update(dt)
 
   for (const e of enemies)     e.update(dt)
   for (const p of projectiles) p.update(dt)
   Effects.update(dt)
 
-  // Prune dead
   for (let i = enemies.length     - 1; i >= 0; i--) if (!enemies[i].alive)     enemies.splice(i, 1)
   for (let i = projectiles.length - 1; i >= 0; i--) if (!projectiles[i].alive) projectiles.splice(i, 1)
 
   Room.checkClear()
 
-  // Exit trigger — player reaches right wall door
   if (Room.exitOpen &&
       Player.x > FLOOR_X2 - 30 &&
       Player.y > CANVAS_H / 2 - 50 &&
@@ -191,28 +206,15 @@ function update(realDt) {
 function draw() {
   ctx.clearRect(0, 0, CANVAS_W, CANVAS_H)
 
-  if (gameState === 'menu') {
-    drawMenu()
-    return
-  }
-  if (gameState === 'dead') {
-    // Still show world behind overlay
-    ctx.save(); ctx.translate(0, 0); ctx.restore()
-    UI.drawDead(ctx)
-    return
-  }
-  if (gameState === 'win') {
-    UI.drawWin(ctx)
-    return
-  }
+  if (gameState === 'menu') { drawMenu(); return }
+  if (gameState === 'dead') { UI.drawDead(ctx); return }
+  if (gameState === 'win')  { UI.drawWin(ctx);  return }
   if (gameState === 'draft') {
-    // Draw last game frame frozen behind
     drawWorld()
     UI.drawDraft(ctx, draftChoices)
     return
   }
 
-  // Playing
   ctx.save()
   ctx.translate(shakeOffsetX, shakeOffsetY)
   drawWorld()
@@ -223,8 +225,7 @@ function draw() {
 
 function drawWorld() {
   Room.draw(ctx)
-  Pressure.draw(ctx)
-  Effects.draw(ctx)   // trails behind player
+  Effects.draw(ctx)
   for (const e of enemies)     e.draw(ctx)
   for (const p of projectiles) p.draw(ctx)
   Player.draw(ctx)
@@ -241,16 +242,17 @@ function drawMenu() {
 
   ctx.fillStyle = '#888'
   ctx.font = '18px monospace'
-  ctx.fillText('Tempo × Pressure', CANVAS_W / 2, CANVAS_H / 2)
+  ctx.fillText('Everything is Tempo', CANVAS_W / 2, CANVAS_H / 2)
 
   ctx.fillStyle = '#555'
-  ctx.font = '14px monospace'
-  ctx.fillText('WASD to move  ·  Space to dash  ·  Click to attack', CANVAS_W / 2, CANVAS_H / 2 + 44)
-  ctx.fillText('Move off a charged cell to release a shockwave', CANVAS_W / 2, CANVAS_H / 2 + 66)
+  ctx.font = '13px monospace'
+  ctx.fillText('WASD move  ·  Left click: combo  ·  Right click: heavy strike', CANVAS_W / 2, CANVAS_H / 2 + 40)
+  ctx.fillText('Space: dodge (timed = perfect)  ·  F at 85+: manual crash', CANVAS_W / 2, CANVAS_H / 2 + 60)
+  ctx.fillText('Cold → Flowing → Hot → Critical — every state changes everything', CANVAS_W / 2, CANVAS_H / 2 + 80)
 
   ctx.fillStyle = '#33dd66'
   ctx.font = 'bold 16px monospace'
-  ctx.fillText('Click anywhere to start', CANVAS_W / 2, CANVAS_H / 2 + 120)
+  ctx.fillText('Click anywhere to start', CANVAS_W / 2, CANVAS_H / 2 + 128)
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────

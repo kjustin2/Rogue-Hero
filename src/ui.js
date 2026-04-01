@@ -4,11 +4,8 @@ const UI = {
   pulseTimer:    0,
 
   update(dt) {
-    // Vignette fades in when Tempo is hot
     const targetVig = Tempo.value >= 70 ? 0.35 : 0
     this.vignetteAlpha += (targetVig - this.vignetteAlpha) * Math.min(1, dt * 4)
-
-    // Pulse timer for bar animation
     this.pulseTimer += dt
   },
 
@@ -23,6 +20,15 @@ const UI = {
   _drawTempoBar(ctx) {
     const BAR_W = 400, BAR_H = 22
     const bx = (CANVAS_W - BAR_W) / 2, by = 18
+
+    // Zone markers at 30, 70, 90
+    const markers = [30, 70, 90]
+    for (const m of markers) {
+      const mx = bx + BAR_W * (m / 100)
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+      ctx.lineWidth = 1
+      ctx.beginPath(); ctx.moveTo(mx, by - 4); ctx.lineTo(mx, by + BAR_H + 4); ctx.stroke()
+    }
 
     // Background
     ctx.fillStyle = '#111'
@@ -56,6 +62,13 @@ const UI = {
     ctx.font = 'bold 11px monospace'
     ctx.textAlign = 'center'
     ctx.fillText(Tempo.stateName(), CANVAS_W / 2, by + BAR_H + 14)
+
+    // Critical sub-label
+    if (Tempo.value >= 90) {
+      ctx.fillStyle = 'rgba(255,60,60,0.85)'
+      ctx.font = '10px monospace'
+      ctx.fillText('PIERCE ACTIVE  ·  ONE HIT KILLS  ·  NO DODGE', CANVAS_W / 2, by + BAR_H + 26)
+    }
   },
 
   _drawHP(ctx) {
@@ -71,18 +84,20 @@ const UI = {
   },
 
   _drawLabels(ctx) {
-    // Floor label
     ctx.font = '12px monospace'
     ctx.textAlign = 'right'
     ctx.fillStyle = '#666'
     ctx.fillText(`ROOM ${RunState.room}`, CANVAS_W - 18, 28)
 
-    // XP
     ctx.fillStyle = '#887700'
     ctx.fillText(`XP ${RunState.xp}`, CANVAS_W - 18, 46)
 
-    // Dodge cooldown indicator
-    if (Player.dodgeCooldown > 0) {
+    // Dodge status (disabled at Critical)
+    if (Tempo.value >= 90) {
+      ctx.fillStyle = 'rgba(255,60,60,0.6)'
+      ctx.font = '11px monospace'
+      ctx.fillText('DODGE LOCKED', CANVAS_W - 18, CANVAS_H - 18)
+    } else if (Player.dodgeCooldown > 0) {
       const t = Player.dodgeCooldown / Player.DODGE_CD
       ctx.fillStyle = `rgba(100,200,255,${(t * 0.7).toFixed(2)})`
       ctx.font = '11px monospace'
@@ -93,12 +108,29 @@ const UI = {
       ctx.fillText('DASH READY', CANVAS_W - 18, CANVAS_H - 18)
     }
 
-    // Exit hint
+    // Manual Crash indicator
+    if (Tempo.value >= 85 && !Tempo.isCrashed) {
+      const pulse = 0.6 + 0.4 * Math.sin(UI.pulseTimer * 10)
+      ctx.fillStyle = `rgba(255,50,50,${pulse.toFixed(2)})`
+      ctx.font = 'bold 12px monospace'
+      ctx.textAlign = 'left'
+      ctx.fillText('[F] CRASH', 18, CANVAS_H - 18)
+    }
+
+    // Heavy attack charging indicator
+    if (Player.isCharging) {
+      const p = 1 - Player.chargeTimer / Player.CHARGE_DUR
+      ctx.fillStyle = `rgba(255,200,0,${(0.6 + p * 0.4).toFixed(2)})`
+      ctx.font = 'bold 12px monospace'
+      ctx.textAlign = 'center'
+      ctx.fillText('CHARGING...', CANVAS_W / 2, CANVAS_H - 18)
+    }
+
     if (Room.exitOpen) {
       ctx.fillStyle = '#33dd66'
       ctx.textAlign = 'center'
       ctx.font = 'bold 13px monospace'
-      ctx.fillText('ROOM CLEAR — REACH THE EXIT', CANVAS_W / 2, CANVAS_H - 18)
+      ctx.fillText('ROOM CLEAR — REACH THE EXIT', CANVAS_W / 2, CANVAS_H - 36)
     }
   },
 
@@ -108,7 +140,7 @@ const UI = {
       CANVAS_W / 2, CANVAS_H / 2, CANVAS_H * 0.25,
       CANVAS_W / 2, CANVAS_H / 2, CANVAS_H * 0.8
     )
-    const col = Tempo.value >= 90 ? '180,0,0' : '120,0,0'
+    const col = Tempo.value >= 90 ? '200,0,0' : '120,0,0'
     grad.addColorStop(0, `rgba(${col},0)`)
     grad.addColorStop(1, `rgba(${col},${this.vignetteAlpha.toFixed(2)})`)
     ctx.fillStyle = grad
@@ -121,7 +153,7 @@ const UI = {
     ctx.fillStyle = '#ffffff'
     ctx.font = 'bold 28px monospace'
     ctx.textAlign = 'center'
-    ctx.fillText('OVERLOAD', CANVAS_W / 2, CANVAS_H / 2)
+    ctx.fillText('CRASH', CANVAS_W / 2, CANVAS_H / 2)
   },
 
   drawDraft(ctx, choices) {
@@ -131,7 +163,12 @@ const UI = {
     ctx.fillStyle = '#fff'
     ctx.font = 'bold 24px monospace'
     ctx.textAlign = 'center'
-    ctx.fillText('CHOOSE AN ITEM', CANVAS_W / 2, 180)
+
+    // Show Tempo carried into next room
+    ctx.fillText('CHOOSE AN ITEM', CANVAS_W / 2, 160)
+    ctx.fillStyle = Tempo.stateColor()
+    ctx.font = '13px monospace'
+    ctx.fillText(`Tempo carries: ${Tempo.stateName()} (${Math.round(Tempo.value)})`, CANVAS_W / 2, 186)
 
     const cardW = 280, cardH = 160, gap = 40
     const totalW = choices.length * cardW + (choices.length - 1) * gap
@@ -140,8 +177,6 @@ const UI = {
     choices.forEach((item, i) => {
       const cx = startX + i * (cardW + gap)
       const cy = 220
-
-      // Card background — highlight on hover
       const mx = mouseX, my = mouseY
       const hovered = mx >= cx && mx <= cx + cardW && my >= cy && my <= cy + cardH
       ctx.fillStyle = hovered ? '#2a2a3a' : '#1a1a28'
@@ -168,7 +203,6 @@ const UI = {
       }
       ctx.fillText(line.trim(), cx + cardW / 2, lineY)
 
-      // Click number hint
       ctx.fillStyle = '#555'
       ctx.font = '11px monospace'
       ctx.fillText(`[${i + 1}]`, cx + cardW / 2, cy + cardH - 14)
