@@ -9,14 +9,7 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- Load order matters: constants first, then systems, then main -->
-  <script src="src/state.js"></script>
-  <script src="src/tempo.js"></script>
-  <script src="src/effects.js"></script>
-  <script src="src/room.js"></script>
-  <script src="src/enemies.js"></script>
-  <script src="src/player.js"></script>
-  <script src="src/ui.js"></script>
-  <script src="src/main.js"></script>
+  <!-- Entry point for ES Modules -->
+  <script type="module" src="src/main.js"></script>
 </body>
 </html>

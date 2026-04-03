@@ -74,6 +74,16 @@ const Effects = {
     effects.push({ type: 'statelabel', age: 0, lifetime: 0.55, text: label, color })
   },
 
+  onZoneTransition(oldZone, newZone) {
+    this.spawnStateLabel(newZone, Tempo.stateColor())
+    this.spawnBeatPulse(Tempo.stateColor())
+    if (typeof Audio !== 'undefined' && Audio.zoneTransition) Audio.zoneTransition()
+  },
+
+  spawnBeatPulse(color) {
+    effects.push({ type: 'beatpulse', age: 0, lifetime: 0.45, color })
+  },
+
   update(dt) {
     for (let i = effects.length - 1; i >= 0; i--) {
       const e = effects[i]
@@ -195,6 +205,14 @@ const Effects = {
           ctx.font        = `bold ${size}px monospace`
           ctx.textAlign   = 'center'
           ctx.fillText(e.text, CANVAS_W / 2, 110)
+          break
+        }
+
+        case 'beatpulse': {
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.25)
+          ctx.strokeStyle = e.color
+          ctx.lineWidth   = 20 * (1 - t)
+          ctx.strokeRect(0, 0, CANVAS_W, CANVAS_H)
           break
         }
       }

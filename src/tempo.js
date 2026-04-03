@@ -1,140 +1,133 @@
-// ── Tempo ─────────────────────────────────────────────────────────────────────
-// The only resource. Everything reads from and writes to this one bar.
-const Tempo = {
-  value: 50,
-  isCrashed: false,
-  REST: 50,
-  DECAY_RATE: 8,
-  manualCrashRadiusBonus: 1.0,
+import { events } from './EventBus.js';
 
-  // Crash reset value depends on class (Berserker resets higher)
-  crashResetValue() {
-    return RunState.chosenClass === 'berserker' ? 70 : 45
-  },
+export class TempoSystem {
+  constructor() {
+    this.value = 50;
+    this.REST = 50;
+    this.DECAY_RATE = 8;
+    this.isCrashed = false;
+    this.sustainedTimer = 0;
+    this.modifiers = {
+      decayRate: 1,
+      gainMult: 1,
+      crashRadiusBonus: 1
+    };
+    
+    // Bind to combat events
+    events.on('COMBO_HIT', ({ hitNum }) => this.onComboHit(hitNum));
+    events.on('KILL', () => this.onKill());
+    events.on('DODGE', () => this.onDodge());
+    events.on('PERFECT_DODGE', () => this.onPerfectDodge());
+    events.on('HEAVY_HIT', () => this.onHeavyHit());
+    events.on('HEAVY_MISS', () => this.onHeavyMiss());
+    events.on('DAMAGE_TAKEN', () => this.onDamageTaken());
+    events.on('DRAIN', () => this.onDrained());
+    events.on('TRIGGER_CRASH', (pos) => this.manualCrash(pos));
+  }
 
   update(dt) {
-    // Sustained item: suppress decay while active
-    if (RunState.sustainedTimer > 0) {
-      RunState.sustainedTimer = Math.max(0, RunState.sustainedTimer - dt)
-      return
+    if (this.sustainedTimer > 0) {
+      this.sustainedTimer = Math.max(0, this.sustainedTimer - dt);
+      return;
     }
-    if (this.isCrashed) return
+    if (this.isCrashed) return;
 
-    const metronome   = RunState.items.includes('metronome') ? 3 : 1
-    const floorMult   = RunState.floorDecayMult || 1.0
-
-    // Runaway: no decay from Hot
-    if (RunState.items.includes('runaway') && this.value >= 70 && this.value < 100) return
-
-    const dir = this.REST - this.value
-    if (Math.abs(dir) < 0.1) return
-    this.value += Math.sign(dir) * this.DECAY_RATE * metronome * floorMult * dt
-    this.value = Math.max(0, Math.min(100, this.value))
-  },
-
-  // ── Callbacks ────────────────────────────────────────────────────────────────
-  onComboHit(hitNum) {
-    if (this.isCrashed) return
-    const gain = hitNum === 3 ? 15 : 4
-    this._add(gain * RunState.tempoGain)
-  },
-  onKill()         { if (!this.isCrashed) this._add(10 * RunState.tempoGain) },
-  onDodge()        {
-    if (this.isCrashed) return
-    if (RunState.items.includes('tempo_tap')) this._add(5)
-    else this._add(-5)
-  },
-  onPerfectDodge() { if (!this.isCrashed) this._add(10) },
-  onHeavyHit()     { if (!this.isCrashed) this._add(20 * RunState.tempoGain) },
-  onHeavyMiss()    { if (!this.isCrashed) this._add(8  * RunState.tempoGain) },
-  onDrained()      { if (!this.isCrashed) this._add(-20) },
-
-  // ── Manual crash (F key at 85+) ──────────────────────────────────────────────
-  manualCrash(px, py) {
-    if (this.isCrashed || this.value < 85) return false
-    const radius = 120 * this.manualCrashRadiusBonus
-    const dmg    = Math.round(RunState.power * this.damageMultiplier() * 2.5)
-    for (const e of enemies) {
-      if (!e.alive) continue
-      const dx = e.x - px, dy = e.y - py
-      if (dx * dx + dy * dy < (radius + e.r) * (radius + e.r)) e.takeDamage(dmg)
+    const dir = this.REST - this.value;
+    if (Math.abs(dir) < 0.1) {
+      if (this.value !== this.REST) this.setValue(this.REST);
+      return;
     }
-    Effects.spawnCrashBurst(px, py, radius)
-    RunState.runStats.crashes++
-    if (typeof Audio !== 'undefined') Audio.crash()
-    this._doCrash(0.15, 0.25, 0.7)
-    return true
-  },
+    
+    this.setValue(this.value + Math.sign(dir) * this.DECAY_RATE * this.modifiers.decayRate * dt);
+  }
+
+  setValue(newVal) {
+    const oldZone = this.stateName();
+    this.value = Math.max(0, Math.min(100, newVal));
+    const newZone = this.stateName();
+    
+    if (oldZone !== newZone) {
+      events.emit('ZONE_TRANSITION', { oldZone, newZone });
+    }
+    
+    if (this.value >= 100 && !this.isCrashed) {
+      this._triggerAccidentalCrash();
+    }
+  }
 
   _add(amount) {
-    // Apply floor gain multiplier only to positive changes
-    if (amount > 0) amount *= (RunState.floorGainMult || 1.0)
-    this.value = Math.max(0, Math.min(100, this.value + amount))
-    if (this.value >= 100) this._triggerAccidentalCrash()
-  },
+    if (amount === 0 || this.isCrashed) return;
+    if (amount > 0) amount *= this.modifiers.gainMult;
+    this.setValue(this.value + amount);
+  }
+
+  onComboHit(hitNum) { this._add(hitNum === 3 ? 15 : 4); }
+  onKill() { this._add(10); }
+  onDodge() { this._add(this.value < 30 ? 0 : -5); } // Free dodge in Cold
+  onPerfectDodge() { this._add(10); }
+  onHeavyHit() { this._add(20); }
+  onHeavyMiss() { this._add(8); }
+  onDamageTaken() { /* e.g. Warden buffs go here, implemented in player/class system via observing this event */ }
+  onDrained() { this._add(-20); }
+
+  manualCrash(pos) {
+    if (this.isCrashed || this.value < 85) return false;
+    const radius = 120 * this.modifiers.crashRadiusBonus;
+    const dmg = Math.round(this.damageMultiplier() * 2.5 * 10); // base weapon dmg assumed 10
+    
+    events.emit('CRASH_ATTACK', { x: pos.x, y: pos.y, radius, dmg, source: 'manual' });
+    this._doCrash(0.15, 0.25, 0.7);
+    return true;
+  }
 
   _triggerAccidentalCrash() {
-    if (RunState.items.includes('echo') && typeof Player !== 'undefined') {
-      Player._echoAttack()
-    }
-    const radius = 80 * this.manualCrashRadiusBonus
-    const dmg    = Math.round(RunState.power * this.damageMultiplier() * 1.5)
-    if (typeof Player !== 'undefined') {
-      for (const e of enemies) {
-        if (!e.alive) continue
-        const dx = e.x - Player.x, dy = e.y - Player.y
-        if (dx * dx + dy * dy < (radius + e.r) * (radius + e.r)) e.takeDamage(dmg)
-      }
-      Effects.spawnCrashBurst(Player.x, Player.y, radius)
-    }
-    RunState.runStats.crashes++
-    if (typeof Audio !== 'undefined') Audio.crash()
-    this._doCrash(0.2, 0.3, 0.8)
-  },
+    const radius = 80 * this.modifiers.crashRadiusBonus;
+    const dmg = Math.round(this.damageMultiplier() * 1.5 * 10);
+    events.emit('REQUEST_PLAYER_POS_CRASH', { radius, dmg }); // Will be answered by Player
+    this._doCrash(0.2, 0.3, 0.8);
+  }
 
   _doCrash(hitStopDur, shakeDur, shakeIntens) {
-    this.isCrashed = true
-    this.value     = this.crashResetValue()
-    hitStopTimer   = hitStopDur
-    shakeIntensity = shakeIntens
-    shakeDuration  = shakeDur
-    shakeElapsed   = 0
-    setTimeout(() => { this.isCrashed = false }, shakeDur * 1000 + 50)
-  },
+    this.isCrashed = true;
+    this.value = 70; // baseline reset
+    events.emit('HIT_STOP', hitStopDur);
+    events.emit('SCREEN_SHAKE', { duration: shakeDur, intensity: shakeIntens });
+    events.emit('PLAY_SOUND', 'crash');
+    setTimeout(() => { this.isCrashed = false; }, shakeDur * 1000 + 50);
+  }
 
-  // ── Multipliers ──────────────────────────────────────────────────────────────
   damageMultiplier() {
-    if (this.value < 30) return 0.7
-    if (this.value < 70) return 1.0
-    if (this.value < 90) return 1.3
-    return 1.8
-  },
+    if (this.value < 30) return 0.7;
+    if (this.value < 70) return 1.0;
+    if (this.value < 90) return 1.3;
+    return 1.8;
+  }
 
   speedMultiplier() {
-    if (this.value >= 90) return 1.0
-    if (this.value >= 70) return 1.2
-    if (this.value <  30) return 0.9
-    return 1.0
-  },
+    if (this.value >= 90) return 1.0;
+    if (this.value >= 70) return 1.2;
+    if (this.value < 30) return 0.9;
+    return 1.0;
+  }
 
   stateName() {
-    if (this.value < 30) return 'COLD'
-    if (this.value < 70) return 'FLOWING'
-    if (this.value < 90) return 'HOT'
-    return 'CRITICAL'
-  },
+    if (this.value < 30) return 'COLD';
+    if (this.value < 70) return 'FLOWING';
+    if (this.value < 90) return 'HOT';
+    return 'CRITICAL';
+  }
 
   stateColor() {
-    if (this.value < 30) return '#4488ff'
-    if (this.value < 70) return '#44ff88'
-    if (this.value < 90) return '#ff8800'
-    return '#ff3333'
-  },
+    if (this.value < 30) return '#4488ff';
+    if (this.value < 70) return '#44ff88';
+    if (this.value < 90) return '#ff8800';
+    return '#ff3333';
+  }
 
   barColor() {
-    if (this.value < 30) return '#2255cc'
-    if (this.value < 70) return '#22aa55'
-    if (this.value < 90) return '#cc6600'
-    return '#cc1111'
-  },
+    if (this.value < 30) return '#2255cc';
+    if (this.value < 70) return '#22aa55';
+    if (this.value < 90) return '#cc6600';
+    return '#cc1111';
+  }
 }

@@ -454,6 +454,134 @@ class Berserker {
   }
 }
 
+// ── Metronome ─────────────────────────────────────────────────────────────────
+class Metronome {
+  constructor(x, y) {
+    this.x = x; this.y = y
+    this.r = 15; this.hp = 25; this.maxHp = 25
+    this.alive = true; this.type = 'metronome'
+    this.hitFlash = 0; this.staggerTimer = 0
+    this.beatTimer = 0; this.BEAT_DUR = 1.0
+  }
+
+  stagger(duration) { this.staggerTimer = Math.max(this.staggerTimer, duration) }
+
+  update(dt) {
+    if (!this.alive) return
+    this.hitFlash = Math.max(0, this.hitFlash - dt)
+    this.beatTimer = (this.beatTimer + dt) % this.BEAT_DUR
+    if (this.staggerTimer > 0) { this.staggerTimer -= dt; return }
+
+    const dx = Player.x - this.x, dy = Player.y - this.y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    const spd = 60 * (0.7 + (Tempo.value / 100) * 0.8)
+
+    if (dist > 80) {
+      this.x += (dx / dist) * spd * dt; this.y += (dy / dist) * spd * dt
+      const c = Room.clampToFloor(this.x, this.y, this.r)
+      this.x = c.x; this.y = c.y
+    }
+    if (dist < this.r + Player.r + 4) Player.takeDamage(1)
+  }
+
+  _isVulnerable() {
+    const t = this.beatTimer / this.BEAT_DUR
+    return t > 0.8 || t < 0.2 // Vulnerable at the "peak" of the beat
+  }
+
+  takeDamage(amount) {
+    if (!this.alive) return false
+    if (!this._isVulnerable()) { this.hitFlash = 0.05; return false }
+    this.hp -= amount
+    this.hitFlash = 0.1
+    if (amount > 0) Effects.spawnNumber(this.x, this.y - 22, amount)
+    if (this.hp <= 0) {
+      this.alive = false
+      Effects.spawnBurst(this.x, this.y, '#ffff00')
+      onEnemyDied(5)
+      return true
+    }
+    return false
+  }
+
+  draw(ctx) {
+    if (!this.alive) return
+    const vuln = this._isVulnerable()
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2)
+    ctx.fillStyle = this.hitFlash > 0 ? '#ffffff' : (vuln ? '#ffff44' : '#888822')
+    ctx.fill()
+
+    // Beat ring
+    const t = this.beatTimer / this.BEAT_DUR
+    const ringR = this.r + 20 * (1 - t)
+    ctx.beginPath(); ctx.arc(this.x, this.y, Math.max(0, ringR), 0, Math.PI * 2)
+    ctx.strokeStyle = vuln ? '#ffffaa' : 'rgba(255,255,255,0.2)'
+    ctx.lineWidth = 2; ctx.stroke()
+
+    ctx.fillStyle = '#ffff88'
+    ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'
+    ctx.fillText('MET', this.x, this.y - this.r - 4)
+  }
+}
+
+// ── Sync-Wraith ───────────────────────────────────────────────────────────────
+class SyncWraith {
+  constructor(x, y) {
+    this.x = x; this.y = y
+    this.r = 14; this.hp = 18; this.maxHp = 18
+    this.alive = true; this.type = 'syncwraith'
+    this.hitFlash = 0; this.staggerTimer = 0
+  }
+
+  stagger(duration) { this.staggerTimer = Math.max(this.staggerTimer, duration) }
+
+  update(dt) {
+    if (!this.alive) return
+    this.hitFlash = Math.max(0, this.hitFlash - dt)
+    if (this.staggerTimer > 0) { this.staggerTimer -= dt; return }
+
+    const isGhost = Tempo.stateName() === 'FLOWING'
+    const dx = Player.x - this.x, dy = Player.y - this.y
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    const spd = (isGhost ? 40 : 120) * (0.7 + (Tempo.value / 100) * 0.8)
+
+    this.x += (dx / dist) * spd * dt; this.y += (dy / dist) * spd * dt
+    const c = Room.clampToFloor(this.x, this.y, this.r)
+    this.x = c.x; this.y = c.y
+
+    if (!isGhost && dist < this.r + Player.r + 2) Player.takeDamage(1)
+  }
+
+  takeDamage(amount) {
+    if (!this.alive) return false
+    if (Tempo.stateName() === 'FLOWING') { this.hitFlash = 0.05; return false }
+    this.hp -= amount
+    this.hitFlash = 0.1
+    if (amount > 0) Effects.spawnNumber(this.x, this.y - 22, amount)
+    if (this.hp <= 0) {
+      this.alive = false
+      Effects.spawnBurst(this.x, this.y, '#aaddee')
+      onEnemyDied(4)
+      return true
+    }
+    return false
+  }
+
+  draw(ctx) {
+    if (!this.alive) return
+    const isGhost = Tempo.stateName() === 'FLOWING'
+    ctx.globalAlpha = isGhost ? 0.4 : 0.9
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2)
+    ctx.fillStyle = this.hitFlash > 0 ? '#ffffff' : '#44aacc'
+    ctx.fill()
+    ctx.globalAlpha = 1.0
+
+    ctx.fillStyle = '#88ccff'
+    ctx.font = 'bold 8px monospace'; ctx.textAlign = 'center'
+    ctx.fillText(isGhost ? 'GHOST👻' : 'WRAITH', this.x, this.y - this.r - 4)
+  }
+}
+
 // ── Projectile ────────────────────────────────────────────────────────────────
 class Projectile {
   constructor(x, y, dx, dy) {
