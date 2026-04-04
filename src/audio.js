@@ -7,16 +7,23 @@ export class AudioSynthesizer {
     this.tempoHumOsc = null;
     this.tempoVal = 50;
 
-    events.on('ZONE_TRANSITION', () => this.zoneTransition());
-    events.on('PLAY_SOUND', (name) => {
-      if (this[name]) this[name]();
+    // Procedural music layers
+    this.musicLayers = {};
+    this.currentZone = 'FLOWING';
+
+    events.on('ZONE_TRANSITION', ({ oldZone, newZone }) => {
+      this.currentZone = newZone;
+      this._updateMusicLayers();
+      this.zoneTransition();
     });
+    events.on('PLAY_SOUND', (name) => { if (this[name]) this[name](); });
   }
 
   init() {
     if (this.ctx) return;
     try {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // Tempo hum
       this.tempoHumOsc = this.ctx.createOscillator();
       this.tempoHumGain = this.ctx.createGain();
       this.tempoHumOsc.type = 'sine';
@@ -25,6 +32,95 @@ export class AudioSynthesizer {
       this.tempoHumOsc.connect(this.tempoHumGain);
       this.tempoHumGain.connect(this.ctx.destination);
       this.tempoHumOsc.start();
+      this._initMusicLayers();
+    } catch (e) {}
+  }
+
+  _initMusicLayers() {
+    if (!this.ctx) return;
+    try {
+      // Layer 1: Low pulse (Flowing+)
+      const pulse = this.ctx.createOscillator();
+      const pulseGain = this.ctx.createGain();
+      pulse.type = 'sine';
+      pulse.frequency.value = 55;
+      pulseGain.gain.value = 0;
+      pulse.connect(pulseGain);
+      pulseGain.connect(this.ctx.destination);
+      pulse.start();
+      this.musicLayers.pulse = { osc: pulse, gain: pulseGain };
+
+      // Layer 2: Mid rhythm (Hot+)
+      const mid = this.ctx.createOscillator();
+      const midGain = this.ctx.createGain();
+      mid.type = 'triangle';
+      mid.frequency.value = 110;
+      midGain.gain.value = 0;
+      mid.connect(midGain);
+      midGain.connect(this.ctx.destination);
+      mid.start();
+      this.musicLayers.mid = { osc: mid, gain: midGain };
+
+      // Layer 3: High tension (Critical)
+      const high = this.ctx.createOscillator();
+      const highGain = this.ctx.createGain();
+      high.type = 'sawtooth';
+      high.frequency.value = 220;
+      highGain.gain.value = 0;
+      high.connect(highGain);
+      highGain.connect(this.ctx.destination);
+      high.start();
+      this.musicLayers.high = { osc: high, gain: highGain };
+    } catch (e) {}
+  }
+
+  _updateMusicLayers() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    try {
+      const p = this.musicLayers.pulse;
+      const m = this.musicLayers.mid;
+      const h = this.musicLayers.high;
+      if (!p || !m || !h) return;
+
+      switch (this.currentZone) {
+        case 'COLD':
+          p.gain.gain.setTargetAtTime(0, t, 0.3);
+          m.gain.gain.setTargetAtTime(0, t, 0.3);
+          h.gain.gain.setTargetAtTime(0, t, 0.3);
+          break;
+        case 'FLOWING':
+          p.gain.gain.setTargetAtTime(0.02, t, 0.3);
+          p.osc.frequency.setTargetAtTime(55, t, 0.2);
+          m.gain.gain.setTargetAtTime(0, t, 0.3);
+          h.gain.gain.setTargetAtTime(0, t, 0.3);
+          break;
+        case 'HOT':
+          p.gain.gain.setTargetAtTime(0.03, t, 0.2);
+          p.osc.frequency.setTargetAtTime(65, t, 0.2);
+          m.gain.gain.setTargetAtTime(0.02, t, 0.2);
+          m.osc.frequency.setTargetAtTime(130, t, 0.2);
+          h.gain.gain.setTargetAtTime(0, t, 0.2);
+          break;
+        case 'CRITICAL':
+          p.gain.gain.setTargetAtTime(0.04, t, 0.1);
+          p.osc.frequency.setTargetAtTime(75, t, 0.1);
+          m.gain.gain.setTargetAtTime(0.03, t, 0.1);
+          m.osc.frequency.setTargetAtTime(150, t, 0.1);
+          h.gain.gain.setTargetAtTime(0.015, t, 0.1);
+          h.osc.frequency.setTargetAtTime(300, t, 0.1);
+          break;
+      }
+    } catch (e) {}
+  }
+
+  silenceMusic() {
+    if (!this.ctx) return;
+    const t = this.ctx.currentTime;
+    try {
+      for (const key in this.musicLayers) {
+        this.musicLayers[key].gain.gain.setTargetAtTime(0, t, 0.2);
+      }
     } catch (e) {}
   }
 
@@ -99,5 +195,19 @@ export class AudioSynthesizer {
   zoneTransition() {
     this._tone(this._tFreq(660), 'sine', 0.12, 0.1);
     this._tone(this._tFreq(880), 'sine', 0.08, 0.06, 0.02);
+  }
+  bossPhase() {
+    this._tone(200, 'sawtooth', 0.3, 0.25);
+    this._noise(0.3, 0.15, 400);
+    this._tone(100, 'sine', 0.5, 0.18, 0.05);
+  }
+  itemPickup() {
+    this._tone(660, 'sine', 0.1, 0.1);
+    this._tone(880, 'sine', 0.1, 0.08, 0.05);
+    this._tone(1100, 'sine', 0.15, 0.06, 0.1);
+  }
+  upgrade() {
+    this._tone(440, 'sine', 0.1, 0.1);
+    this._tone(660, 'sine', 0.15, 0.1, 0.05);
   }
 }

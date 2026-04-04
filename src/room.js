@@ -7,34 +7,115 @@ export class RoomManager {
     this.FLOOR_Y1 = this.WALL;
     this.FLOOR_X2 = this.w - this.WALL;
     this.FLOOR_Y2 = this.h - this.WALL;
+    this._gridCache = null;
+    this.pillars = [];
+    this.variant = 'standard'; // standard, pillars, arena, corridor
+    this.theme = 0;
+  }
+
+  // Generate room variant — called before each combat
+  generateVariant(floor, rng) {
+    this.pillars = [];
+    this._gridCache = null; // Force redraw
+
+    const r = rng ? rng() : Math.random();
+    if (r < 0.3)      this.variant = 'standard';
+    else if (r < 0.55) this.variant = 'pillars';
+    else if (r < 0.75) this.variant = 'arena';
+    else               this.variant = 'corridor';
+
+    this.theme = floor % 3;
+
+    const fw = this.FLOOR_X2 - this.FLOOR_X1;
+    const fh = this.FLOOR_Y2 - this.FLOOR_Y1;
+
+    if (this.variant === 'pillars') {
+      // 2-4 random pillars
+      const count = 2 + Math.floor((rng ? rng() : Math.random()) * 3);
+      for (let i = 0; i < count; i++) {
+        const pw = 30 + Math.floor((rng ? rng() : Math.random()) * 40);
+        const ph = 30 + Math.floor((rng ? rng() : Math.random()) * 40);
+        const px = this.FLOOR_X1 + 60 + Math.floor((rng ? rng() : Math.random()) * (fw - 120 - pw));
+        const py = this.FLOOR_Y1 + 60 + Math.floor((rng ? rng() : Math.random()) * (fh - 120 - ph));
+        this.pillars.push({ x: px, y: py, w: pw, h: ph });
+      }
+    } else if (this.variant === 'arena') {
+      // Four corner pillars
+      const ps = 35;
+      const margin = 100;
+      this.pillars.push({ x: this.FLOOR_X1 + margin, y: this.FLOOR_Y1 + margin, w: ps, h: ps });
+      this.pillars.push({ x: this.FLOOR_X2 - margin - ps, y: this.FLOOR_Y1 + margin, w: ps, h: ps });
+      this.pillars.push({ x: this.FLOOR_X1 + margin, y: this.FLOOR_Y2 - margin - ps, w: ps, h: ps });
+      this.pillars.push({ x: this.FLOOR_X2 - margin - ps, y: this.FLOOR_Y2 - margin - ps, w: ps, h: ps });
+    } else if (this.variant === 'corridor') {
+      // Two long walls creating a corridor with gaps
+      const wallH = 25;
+      const gapW = 100;
+      const topY = this.FLOOR_Y1 + Math.floor(fh * 0.33);
+      const botY = this.FLOOR_Y1 + Math.floor(fh * 0.63);
+      const gapX1 = this.FLOOR_X1 + Math.floor(fw * 0.25);
+      const gapX2 = this.FLOOR_X1 + Math.floor(fw * 0.65);
+
+      this.pillars.push({ x: this.FLOOR_X1, y: topY, w: gapX1 - this.FLOOR_X1, h: wallH });
+      this.pillars.push({ x: gapX1 + gapW, y: topY, w: this.FLOOR_X2 - gapX1 - gapW, h: wallH });
+      this.pillars.push({ x: this.FLOOR_X1, y: botY, w: gapX2 - this.FLOOR_X1, h: wallH });
+      this.pillars.push({ x: gapX2 + gapW, y: botY, w: this.FLOOR_X2 - gapX2 - gapW, h: wallH });
+    }
   }
 
   clamp(x, y, r) {
     let nx = Math.max(this.FLOOR_X1 + r, Math.min(this.FLOOR_X2 - r, x));
     let ny = Math.max(this.FLOOR_Y1 + r, Math.min(this.FLOOR_Y2 - r, y));
+
+    // Pillar collision — push out
+    for (const p of this.pillars) {
+      if (nx + r > p.x && nx - r < p.x + p.w && ny + r > p.y && ny - r < p.y + p.h) {
+        const overlapLeft   = (nx + r) - p.x;
+        const overlapRight  = (p.x + p.w) - (nx - r);
+        const overlapTop    = (ny + r) - p.y;
+        const overlapBottom = (p.y + p.h) - (ny - r);
+        const minOverlap = Math.min(overlapLeft, overlapRight, overlapTop, overlapBottom);
+        if (minOverlap === overlapLeft)       nx = p.x - r;
+        else if (minOverlap === overlapRight) nx = p.x + p.w + r;
+        else if (minOverlap === overlapTop)   ny = p.y - r;
+        else                                  ny = p.y + p.h + r;
+      }
+    }
+
     return { x: nx, y: ny };
   }
 
-  draw(ctx) {
-    ctx.fillStyle = '#1a1a24';
-    ctx.fillRect(0, 0, this.w, this.h);
+  _getThemeColors() {
+    if (this.theme === 1) return { bg: '#1a1820', floor: '#12110e', grid: 'rgba(255,200,100,0.025)', pillar: '#332a1e', pillarStroke: '#554422' };
+    if (this.theme === 2) return { bg: '#1a1424', floor: '#0e0a14', grid: 'rgba(180,100,255,0.025)', pillar: '#2a1e33', pillarStroke: '#442255' };
+    return { bg: '#1a1a24', floor: '#0e0e14', grid: 'rgba(255,255,255,0.03)', pillar: '#222233', pillarStroke: '#334455' };
+  }
+
+  _buildGridCache() {
+    const canvas = document.createElement('canvas');
+    canvas.width = this.w;
+    canvas.height = this.h;
+    const ctx = canvas.getContext('2d');
+    const tc = this._getThemeColors();
 
     const fw = this.FLOOR_X2 - this.FLOOR_X1;
     const fh = this.FLOOR_Y2 - this.FLOOR_Y1;
     const cx = this.FLOOR_X1 + fw / 2;
     const cy = this.FLOOR_Y1 + fh / 2;
 
-    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(fw, fh) * 0.7);
-    grad.addColorStop(0, '#1a1a24');
-    grad.addColorStop(1, '#0e0e14');
+    ctx.fillStyle = tc.bg;
+    ctx.fillRect(0, 0, this.w, this.h);
 
+    const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(fw, fh) * 0.7);
+    grad.addColorStop(0, tc.bg);
+    grad.addColorStop(1, tc.floor);
     ctx.fillStyle = grad;
     ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
     ctx.shadowBlur = 30;
     ctx.fillRect(this.FLOOR_X1, this.FLOOR_Y1, fw, fh);
     ctx.shadowColor = 'transparent';
 
-    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.strokeStyle = tc.grid;
     ctx.lineWidth = 1;
     const CELL_SIZE = 64;
     for (let x = this.FLOOR_X1; x <= this.FLOOR_X2; x += CELL_SIZE) {
@@ -43,5 +124,21 @@ export class RoomManager {
     for (let y = this.FLOOR_Y1; y <= this.FLOOR_Y2; y += CELL_SIZE) {
       ctx.beginPath(); ctx.moveTo(this.FLOOR_X1, y); ctx.lineTo(this.FLOOR_X2, y); ctx.stroke();
     }
+
+    // Draw pillars
+    for (const p of this.pillars) {
+      ctx.fillStyle = tc.pillar;
+      ctx.fillRect(p.x, p.y, p.w, p.h);
+      ctx.strokeStyle = tc.pillarStroke;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(p.x, p.y, p.w, p.h);
+    }
+
+    this._gridCache = canvas;
+  }
+
+  draw(ctx) {
+    if (!this._gridCache) this._buildGridCache();
+    ctx.drawImage(this._gridCache, 0, 0);
   }
 }

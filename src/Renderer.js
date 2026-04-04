@@ -1,3 +1,5 @@
+import { events } from './EventBus.js';
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -11,6 +13,13 @@ export class Renderer {
     this.shakeIntensity = 0;
     this.shakeDuration = 0;
     this.shakeElapsed = 0;
+
+    // Listen for shake events
+    events.on('SCREEN_SHAKE', ({ duration, intensity }) => {
+      this.shakeDuration = Math.max(this.shakeDuration - this.shakeElapsed, duration);
+      this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
+      this.shakeElapsed = 0;
+    });
   }
 
   updateShake(dt) {

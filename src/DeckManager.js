@@ -123,17 +123,19 @@ export class DeckManager {
     this.collection = [];
     this.hand = [null, null, null, null];
     this.HAND_SIZE = 4;
+    this.upgrades = {}; // { cardId: upgradeLevel }
   }
 
   initDeck(startingCardIds) {
     this.collection = [...new Set(startingCardIds)];
+    this.upgrades = {};
     this.hand = [null, null, null, null];
     for (let i = 0; i < this.HAND_SIZE; i++) {
       if (i < this.collection.length) {
         this.hand[i] = this.collection[i];
       }
     }
-    console.log(`[Deck] Initialized with [${this.collection.join(', ')}], hand: [${this.hand.join(', ')}]`);
+    console.log(`[Deck] Initialized with [${this.collection.join(', ')}]`);
   }
 
   addCard(cardId) {
@@ -149,7 +151,6 @@ export class DeckManager {
   }
 
   equipCard(slotIndex, cardId) {
-    // Prevent duplicate equips — remove from other slot first
     for (let i = 0; i < this.HAND_SIZE; i++) {
       if (i !== slotIndex && this.hand[i] === cardId) {
         this.hand[i] = null;
@@ -168,6 +169,39 @@ export class DeckManager {
   useCard(slotIndex) {
     const cardId = this.hand[slotIndex];
     if (!cardId) return null;
-    return CardDefinitions[cardId];
+    return this.getCardDef(cardId);
+  }
+
+  // Get effective card definition (with upgrades applied)
+  getCardDef(cardId) {
+    const base = CardDefinitions[cardId];
+    if (!base) return null;
+    const level = this.upgrades[cardId] || 0;
+    if (level === 0) return base;
+    // Upgraded: +50% damage per level, append + to name
+    return {
+      ...base,
+      name: base.name + '+'.repeat(level),
+      damage: Math.round(base.damage * (1 + 0.5 * level)),
+      desc: base.desc + ` [Upgraded ${level}×]`
+    };
+  }
+
+  // Upgrade a card (increment level)
+  upgradeCard(cardId) {
+    if (!this.collection.includes(cardId)) return false;
+    const current = this.upgrades[cardId] || 0;
+    if (current >= 2) return false; // Max 2 upgrades
+    this.upgrades[cardId] = current + 1;
+    console.log(`[Deck] Upgraded "${cardId}" to level ${current + 1}`);
+    return true;
+  }
+
+  // Get cards eligible for upgrade
+  getUpgradeChoices() {
+    return this.collection.filter(id => {
+      const level = this.upgrades[id] || 0;
+      return level < 2;
+    });
   }
 }

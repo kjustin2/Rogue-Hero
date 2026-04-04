@@ -3,6 +3,7 @@ export class ParticleSystem {
     this.particles = [];
     this.texts = [];
     this.visuals = [];
+    this.screenEffects = [];
   }
 
   update(dt) {
@@ -10,7 +11,8 @@ export class ParticleSystem {
       let p = this.particles[i];
       p.life -= dt;
       if (p.life <= 0) {
-        this.particles.splice(i, 1);
+        this.particles[i] = this.particles[this.particles.length - 1];
+        this.particles.pop();
       } else {
         p.x += p.vx * dt;
         p.y += p.vy * dt;
@@ -18,14 +20,16 @@ export class ParticleSystem {
         p.vy *= p.drag;
       }
     }
-    
+
     for (let i = this.texts.length - 1; i >= 0; i--) {
       let t = this.texts[i];
       t.life -= dt;
+      t.vy += 70 * dt;
+      t.x += (t.vx || 0) * dt;
+      t.y += t.vy * dt;
       if (t.life <= 0) {
-        this.texts.splice(i, 1);
-      } else {
-        t.y -= 30 * dt;
+        this.texts[i] = this.texts[this.texts.length - 1];
+        this.texts.pop();
       }
     }
 
@@ -33,12 +37,22 @@ export class ParticleSystem {
       let v = this.visuals[i];
       v.life -= dt;
       if (v.life <= 0) {
-        this.visuals.splice(i, 1);
+        this.visuals[i] = this.visuals[this.visuals.length - 1];
+        this.visuals.pop();
+      }
+    }
+
+    for (let i = this.screenEffects.length - 1; i >= 0; i--) {
+      let s = this.screenEffects[i];
+      s.life -= dt;
+      if (s.life <= 0) {
+        this.screenEffects[i] = this.screenEffects[this.screenEffects.length - 1];
+        this.screenEffects.pop();
       }
     }
   }
 
-  draw(ctx) {
+  draw(ctx, canvasW, canvasH) {
     // Particles
     for (const p of this.particles) {
       const alpha = p.life / p.maxLife;
@@ -49,15 +63,14 @@ export class ParticleSystem {
       ctx.fill();
     }
     ctx.globalAlpha = 1.0;
-    
+
     // Damage numbers
     for (const t of this.texts) {
-      const alpha = t.life / t.maxLife;
+      const alpha = Math.max(0, t.life / t.maxLife);
       ctx.globalAlpha = alpha;
       ctx.fillStyle = t.color;
-      ctx.font = 'bold 16px monospace';
+      ctx.font = `bold ${t.size || 16}px monospace`;
       ctx.textAlign = 'center';
-      // Shadow for readability
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 3;
       ctx.strokeText(t.text, t.x, t.y);
@@ -65,13 +78,13 @@ export class ParticleSystem {
     }
     ctx.globalAlpha = 1.0;
 
-    // Visual effects (slashes, rings)
+    // Visual effects (slashes, rings, crash bursts, perfect dodge)
     for (const v of this.visuals) {
       const progress = 1 - (v.life / v.maxLife);
       const alpha = v.life / v.maxLife;
       ctx.globalAlpha = alpha;
       ctx.strokeStyle = v.color;
-      
+
       if (v.type === 'slash') {
         ctx.lineWidth = 18 * (1 - progress);
         ctx.beginPath();
@@ -80,31 +93,102 @@ export class ParticleSystem {
         const cy = v.y + Math.sin(v.angle) * (dist * 0.5);
         ctx.arc(cx, cy, dist, v.angle - Math.PI / 3, v.angle + Math.PI / 3);
         ctx.stroke();
-        // Inner bright core
         ctx.lineWidth = 6 * (1 - progress);
         ctx.strokeStyle = '#ffffff';
         ctx.globalAlpha = alpha * 0.6;
         ctx.beginPath();
         ctx.arc(cx, cy, dist - 4, v.angle - Math.PI / 4, v.angle + Math.PI / 4);
         ctx.stroke();
+
       } else if (v.type === 'ring') {
         ctx.lineWidth = 6 * (1 - progress);
         ctx.beginPath();
         ctx.arc(v.x, v.y, v.targetRadius * progress, 0, Math.PI * 2);
         ctx.stroke();
-        // Inner fill
         ctx.fillStyle = v.color;
         ctx.globalAlpha = alpha * 0.08;
         ctx.beginPath();
         ctx.arc(v.x, v.y, v.targetRadius * progress, 0, Math.PI * 2);
         ctx.fill();
+
+      } else if (v.type === 'crashburst') {
+        const r = v.targetRadius * Math.sqrt(progress);
+        ctx.globalAlpha = alpha * 0.9;
+        ctx.beginPath();
+        ctx.arc(v.x, v.y, Math.max(0, r), 0, Math.PI * 2);
+        ctx.strokeStyle = '#ff4400';
+        ctx.lineWidth = 5 * (1 - progress) + 1;
+        ctx.stroke();
+        if (progress < 0.25) {
+          ctx.globalAlpha = Math.max(0, (0.25 - progress) * 4 * 0.25);
+          ctx.fillStyle = '#ff8800';
+          ctx.beginPath();
+          ctx.arc(v.x, v.y, Math.max(0, r), 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+      } else if (v.type === 'perfectdodge') {
+        ctx.globalAlpha = alpha * 0.75;
+        ctx.beginPath();
+        ctx.arc(v.x, v.y, 84 * progress, 0, Math.PI * 2);
+        ctx.strokeStyle = '#aaddff';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+
+      } else if (v.type === 'trailparticle') {
+        ctx.globalAlpha = alpha * 0.5;
+        ctx.fillStyle = v.color;
+        ctx.fillRect(v.x - 5, v.y - 5, 10, 10);
       }
     }
     ctx.globalAlpha = 1.0;
+
+    // Screen-level effects (kill flash, zone pulse, room clear)
+    if (canvasW && canvasH) {
+      for (const s of this.screenEffects) {
+        const t = 1 - (s.life / s.maxLife);
+        if (s.type === 'killflash') {
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.18);
+          ctx.fillStyle = s.color;
+          ctx.fillRect(0, 0, canvasW, canvasH);
+
+        } else if (s.type === 'zonepulse') {
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.25);
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = 20 * (1 - t);
+          ctx.strokeRect(0, 0, canvasW, canvasH);
+
+        } else if (s.type === 'roomclear') {
+          const wave = canvasW * t;
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.3);
+          const grad = ctx.createLinearGradient(wave - 120, 0, wave, 0);
+          grad.addColorStop(0, 'rgba(51,221,102,0)');
+          grad.addColorStop(1, 'rgba(51,221,102,1)');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, Math.min(wave, canvasW), canvasH);
+
+        } else if (s.type === 'statelabel') {
+          const scaleT = t < 0.35 ? t / 0.35 : 1 - (t - 0.35) / 0.65;
+          const size = Math.round(24 + scaleT * 14);
+          ctx.globalAlpha = Math.max(0, scaleT);
+          ctx.fillStyle = s.color;
+          ctx.font = `bold ${size}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText(s.text, canvasW / 2, 110);
+
+        } else if (s.type === 'lastkill') {
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.12);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvasW, canvasH);
+        }
+      }
+      ctx.globalAlpha = 1.0;
+    }
   }
 
   spawnBurst(x, y, color) {
-    for (let i = 0; i < 18; i++) {
+    const count = 10 + Math.floor(Math.random() * 6);
+    for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 60 + Math.random() * 180;
       this.particles.push({
@@ -112,45 +196,110 @@ export class ParticleSystem {
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
         r: 2 + Math.random() * 3,
-        color: color,
+        color,
         life: 0.25 + Math.random() * 0.2,
         maxLife: 0.45,
         drag: 0.90
       });
     }
   }
-  
+
+  spawnCrashBurst(x, y, radius) {
+    this.visuals.push({
+      type: 'crashburst', x, y, targetRadius: radius,
+      life: 0.4, maxLife: 0.4, color: '#ff4400'
+    });
+    for (let i = 0; i < 14; i++) {
+      const angle = (i / 14) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
+      const dist = radius * (0.4 + Math.random() * 0.6);
+      this.particles.push({
+        x, y,
+        vx: Math.cos(angle) * dist * 2,
+        vy: Math.sin(angle) * dist * 2,
+        r: 3 + Math.random() * 5,
+        color: '#ff8800',
+        life: 0.35, maxLife: 0.4, drag: 0.88
+      });
+    }
+  }
+
   spawnDamageNumber(x, y, amount) {
+    const isText = typeof amount === 'string';
     this.texts.push({
       x: x + (Math.random() * 24 - 12),
       y: y - 10,
-      text: amount.toString(),
-      color: typeof amount === 'string' ? '#44ff88' : '#ffffff',
-      life: 0.8,
-      maxLife: 0.8
+      vx: (Math.random() - 0.5) * 40,
+      vy: -80,
+      text: String(amount),
+      color: isText ? '#44ff88' : '#ffffff',
+      size: isText ? 14 : 16,
+      life: 0.8, maxLife: 0.8
+    });
+  }
+
+  // Damage type colored numbers
+  spawnTypedNumber(x, y, amount, type) {
+    const colors = {
+      melee: '#ffffff',
+      projectile: '#ffaa44',
+      crash: '#ff4400',
+      cold: '#66ccff',
+      hot: '#ff8800',
+      critical: '#ff3333',
+      heal: '#44ff88',
+    };
+    this.texts.push({
+      x: x + (Math.random() * 24 - 12), y: y - 10,
+      vx: (Math.random() - 0.5) * 40, vy: -80,
+      text: String(amount),
+      color: colors[type] || '#ffffff',
+      size: type === 'critical' ? 22 : 16,
+      life: 0.8, maxLife: 0.8
     });
   }
 
   spawnSlash(x, y, targetX, targetY, color) {
     const angle = Math.atan2(targetY - y, targetX - x);
     this.visuals.push({
-      type: 'slash',
-      x, y,
-      angle,
-      color,
-      life: 0.18,
-      maxLife: 0.18
+      type: 'slash', x, y, angle, color,
+      life: 0.18, maxLife: 0.18
     });
   }
 
   spawnRing(x, y, targetRadius, color) {
     this.visuals.push({
-      type: 'ring',
-      x, y,
-      targetRadius,
-      color,
-      life: 0.3,
-      maxLife: 0.3
+      type: 'ring', x, y, targetRadius, color,
+      life: 0.3, maxLife: 0.3
     });
+  }
+
+  spawnPerfectDodge(x, y) {
+    this.visuals.push({ type: 'perfectdodge', x, y, life: 0.32, maxLife: 0.32, color: '#aaddff' });
+  }
+
+  spawnTrail(x, y, color) {
+    this.visuals.push({ type: 'trailparticle', x, y, life: 0.15, maxLife: 0.15, color });
+  }
+
+  // ── SCREEN EFFECTS ──
+
+  spawnKillFlash(color) {
+    this.screenEffects.push({ type: 'killflash', life: 0.12, maxLife: 0.12, color: color || '#ffffff' });
+  }
+
+  spawnZonePulse(color) {
+    this.screenEffects.push({ type: 'zonepulse', life: 0.45, maxLife: 0.45, color });
+  }
+
+  spawnStateLabel(text, color) {
+    this.screenEffects.push({ type: 'statelabel', life: 0.55, maxLife: 0.55, text, color });
+  }
+
+  spawnRoomClear() {
+    this.screenEffects.push({ type: 'roomclear', life: 0.7, maxLife: 0.7 });
+  }
+
+  spawnLastKill() {
+    this.screenEffects.push({ type: 'lastkill', life: 0.2, maxLife: 0.2 });
   }
 }
