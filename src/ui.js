@@ -64,10 +64,8 @@ export class UI {
     ctx.fillStyle = '#111';
     ctx.fillRect(bx - 2, by - 2, BAR_W + 4, BAR_H + 4);
 
-    // Pulsing bar fill
-    const pulseRate = 1 + (this.tempo.value / 100) * 4;
-    const pulseAmt = Math.sin(this._pulseTimer * pulseRate * Math.PI * 2) * 0.04;
-    const fill = Math.min(BAR_W, ((this.tempo.value / 100) + pulseAmt) * BAR_W);
+    // Bar fill
+    const fill = Math.min(BAR_W, (this.tempo.value / 100) * BAR_W);
 
     ctx.fillStyle = this.tempo.barColor();
     ctx.fillRect(bx, by, fill, BAR_H);
@@ -179,10 +177,10 @@ export class UI {
   // ───────────────────────────────────────────────────────────────
   _drawHand(ctx) {
     const hand = this.deckManager.hand;
-    const CARD_W = 140, CARD_H = 180, GAP = 18, RADIUS = 12;
+    const CARD_W = 136, CARD_H = 185, GAP = 16, RADIUS = 12;
     const totalW = this.deckManager.HAND_SIZE * CARD_W + (this.deckManager.HAND_SIZE - 1) * GAP;
     const startX = (this.width - totalW) / 2;
-    const y = this.height - CARD_H - 30;
+    const y = this.height - CARD_H - 15;
 
     this.handBoxes = [];
 
@@ -204,11 +202,11 @@ export class UI {
 
       let grad = ctx.createLinearGradient(x, y, x, y + CARD_H);
       if (cardId && canAfford) {
-        grad.addColorStop(0, '#222633');
-        grad.addColorStop(1, '#151522');
+        grad.addColorStop(0, 'rgba(34, 38, 51, 0.45)');
+        grad.addColorStop(1, 'rgba(21, 21, 34, 0.45)');
       } else {
-        grad.addColorStop(0, '#111116');
-        grad.addColorStop(1, '#0a0a0d');
+        grad.addColorStop(0, 'rgba(17, 17, 22, 0.45)');
+        grad.addColorStop(1, 'rgba(10, 10, 13, 0.45)');
       }
       ctx.fillStyle = grad;
 
@@ -236,39 +234,40 @@ export class UI {
       }
       ctx.stroke();
 
-      ctx.fillStyle = cardId ? 'rgba(68, 68, 85, 0.35)' : '#2a2a35';
-      ctx.font = 'bold 48px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(i + 1, x + CARD_W / 2, y + CARD_H / 2 + 16);
+      ctx.fillStyle = cardId ? 'rgba(255, 255, 255, 0.25)' : 'rgba(255, 255, 255, 0.1)';
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'right';
+      ctx.fillText(`[${i + 1}]`, x + CARD_W - 8, y + 16);
 
       if (cardId && def) {
         ctx.fillStyle = canAfford ? '#ffffff' : '#666';
         ctx.font = 'bold 15px monospace';
+        ctx.textAlign = 'center';
         ctx.fillText(def.name, x + CARD_W / 2, y + 28);
 
         ctx.fillStyle = canAfford ? '#44aaff' : '#224466';
         ctx.beginPath();
-        ctx.arc(x + 22, y + 22, 11, 0, Math.PI * 2);
+        ctx.arc(x, y, 16, 0, Math.PI * 2);
         ctx.fill();
         ctx.fillStyle = '#fff';
-        ctx.font = 'bold 11px monospace';
-        ctx.fillText(def.cost, x + 22, y + 26);
+        ctx.font = 'bold 16px monospace';
+        ctx.fillText(def.cost, x, y + 5);
 
         ctx.fillStyle = def.tempoShift > 0 ? (canAfford ? '#ffaa66' : '#775533') : (canAfford ? '#66ccff' : '#336688');
-        ctx.font = '11px monospace';
+        ctx.font = '12px monospace';
         ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' T', x + CARD_W / 2, y + 55);
 
         ctx.fillStyle = canAfford ? '#888' : '#444';
-        ctx.font = '10px monospace';
+        ctx.font = '11px monospace';
         ctx.fillText(`${def.range}px range`, x + CARD_W / 2, y + 70);
 
         ctx.fillStyle = def.color || '#888';
-        ctx.font = 'bold 10px monospace';
+        ctx.font = 'bold 11px monospace';
         ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 85);
 
-        ctx.fillStyle = canAfford ? '#999' : '#444';
+        ctx.fillStyle = canAfford ? '#bbbbbb' : '#555';
         ctx.font = '11px monospace';
-        this._wrapText(ctx, def.desc, x + 8, y + 120, CARD_W - 16, 13);
+        this._wrapText(ctx, def.desc, x + 8, y + 115, CARD_W - 16, 14);
       }
 
       // "ACTIVE" tag on selected card

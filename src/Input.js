@@ -23,6 +23,14 @@ export class InputManager {
       this.keys.delete(e.key.toLowerCase());
     });
 
+    window.addEventListener('blur', () => {
+      this.keys.clear();
+      this.justPressed.clear();
+      this.mouse.leftDown = false;
+      this.mouse.rightDown = false;
+      this.touchJoystick.active = false;
+    });
+
     window.addEventListener('mousemove', e => this.updateMousePos(e));
 
     canvas.addEventListener('mousedown', e => {

@@ -3,17 +3,21 @@ import { events } from './EventBus.js';
 export class AudioSynthesizer {
   constructor() {
     this.ctx = null;
-    this.tempoHumGain = null;
-    this.tempoHumOsc = null;
     this.tempoVal = 50;
 
-    // Procedural music layers
-    this.musicLayers = {};
-    this.currentZone = 'FLOWING';
+    // BGM handling
+    this.bgmAudio = new Audio();
+    this.bgmAudio.loop = true;
+    this.bgmAudio.volume = 0.4;
+    this.currentBgm = null;
+    
+    this.normalBattleTracks = [
+      'Normal_Battle.wav', 'Normal_Battle2.wav', 'Normal_Battle3.wav',
+      'Normal_Battle4.wav', 'Normal_Battle5.wav', 'Normal_Battle6.wav'
+    ];
 
     events.on('ZONE_TRANSITION', ({ oldZone, newZone }) => {
       this.currentZone = newZone;
-      this._updateMusicLayers();
       this.zoneTransition();
     });
     events.on('PLAY_SOUND', (name) => { if (this[name]) this[name](); });
@@ -23,115 +27,33 @@ export class AudioSynthesizer {
     if (this.ctx) return;
     try {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
-      // Tempo hum
-      this.tempoHumOsc = this.ctx.createOscillator();
-      this.tempoHumGain = this.ctx.createGain();
-      this.tempoHumOsc.type = 'sine';
-      this.tempoHumOsc.frequency.value = 80;
-      this.tempoHumGain.gain.value = 0;
-      this.tempoHumOsc.connect(this.tempoHumGain);
-      this.tempoHumGain.connect(this.ctx.destination);
-      this.tempoHumOsc.start();
-      this._initMusicLayers();
     } catch (e) {}
   }
-
-  _initMusicLayers() {
-    if (!this.ctx) return;
-    try {
-      // Layer 1: Low pulse (Flowing+)
-      const pulse = this.ctx.createOscillator();
-      const pulseGain = this.ctx.createGain();
-      pulse.type = 'sine';
-      pulse.frequency.value = 55;
-      pulseGain.gain.value = 0;
-      pulse.connect(pulseGain);
-      pulseGain.connect(this.ctx.destination);
-      pulse.start();
-      this.musicLayers.pulse = { osc: pulse, gain: pulseGain };
-
-      // Layer 2: Mid rhythm (Hot+)
-      const mid = this.ctx.createOscillator();
-      const midGain = this.ctx.createGain();
-      mid.type = 'triangle';
-      mid.frequency.value = 110;
-      midGain.gain.value = 0;
-      mid.connect(midGain);
-      midGain.connect(this.ctx.destination);
-      mid.start();
-      this.musicLayers.mid = { osc: mid, gain: midGain };
-
-      // Layer 3: High tension (Critical)
-      const high = this.ctx.createOscillator();
-      const highGain = this.ctx.createGain();
-      high.type = 'sawtooth';
-      high.frequency.value = 220;
-      highGain.gain.value = 0;
-      high.connect(highGain);
-      highGain.connect(this.ctx.destination);
-      high.start();
-      this.musicLayers.high = { osc: high, gain: highGain };
-    } catch (e) {}
-  }
-
-  _updateMusicLayers() {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    try {
-      const p = this.musicLayers.pulse;
-      const m = this.musicLayers.mid;
-      const h = this.musicLayers.high;
-      if (!p || !m || !h) return;
-
-      switch (this.currentZone) {
-        case 'COLD':
-          p.gain.gain.setTargetAtTime(0, t, 0.3);
-          m.gain.gain.setTargetAtTime(0, t, 0.3);
-          h.gain.gain.setTargetAtTime(0, t, 0.3);
-          break;
-        case 'FLOWING':
-          p.gain.gain.setTargetAtTime(0.02, t, 0.3);
-          p.osc.frequency.setTargetAtTime(55, t, 0.2);
-          m.gain.gain.setTargetAtTime(0, t, 0.3);
-          h.gain.gain.setTargetAtTime(0, t, 0.3);
-          break;
-        case 'HOT':
-          p.gain.gain.setTargetAtTime(0.03, t, 0.2);
-          p.osc.frequency.setTargetAtTime(65, t, 0.2);
-          m.gain.gain.setTargetAtTime(0.02, t, 0.2);
-          m.osc.frequency.setTargetAtTime(130, t, 0.2);
-          h.gain.gain.setTargetAtTime(0, t, 0.2);
-          break;
-        case 'CRITICAL':
-          p.gain.gain.setTargetAtTime(0.04, t, 0.1);
-          p.osc.frequency.setTargetAtTime(75, t, 0.1);
-          m.gain.gain.setTargetAtTime(0.03, t, 0.1);
-          m.osc.frequency.setTargetAtTime(150, t, 0.1);
-          h.gain.gain.setTargetAtTime(0.015, t, 0.1);
-          h.osc.frequency.setTargetAtTime(300, t, 0.1);
-          break;
-      }
-    } catch (e) {}
+  
+  playBGM(type) {
+    let filename = '';
+    if (type === 'boss') filename = 'Boss_Battle.wav';
+    else if (type === 'map' || type === 'menu') filename = 'Selection_Map.wav';
+    else if (type === 'intro') filename = 'Main_Menu.wav';
+    else if (type === 'normal') {
+      filename = this.normalBattleTracks[Math.floor(Math.random() * this.normalBattleTracks.length)];
+    }
+    
+    if (this.currentBgm === filename) return;
+    this.currentBgm = filename;
+    
+    this.bgmAudio.src = 'music/' + filename;
+    this.bgmAudio.play().catch(e => console.warn('Audio play blocked', e));
   }
 
   silenceMusic() {
-    if (!this.ctx) return;
-    const t = this.ctx.currentTime;
-    try {
-      for (const key in this.musicLayers) {
-        this.musicLayers[key].gain.gain.setTargetAtTime(0, t, 0.2);
-      }
-    } catch (e) {}
+    this.currentBgm = null;
+    this.bgmAudio.pause();
+    this.bgmAudio.currentTime = 0;
   }
 
   updateTempoHum(tempoValue, isPlaying) {
     this.tempoVal = tempoValue;
-    if (!this.ctx || !this.tempoHumGain || !this.tempoHumOsc) return;
-    try {
-      const gs = isPlaying ? 1 : 0;
-      this.tempoHumOsc.frequency.setTargetAtTime(60 + (tempoValue / 100) * 60, this.ctx.currentTime, 0.1);
-      this.tempoHumGain.gain.setTargetAtTime(gs * (0.03 + (tempoValue / 100) * 0.05), this.ctx.currentTime, 0.2);
-    } catch (e) {}
   }
 
   _tone(freq, type, dur, vol, attack) {

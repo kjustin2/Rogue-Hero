@@ -3,8 +3,9 @@ import { events } from './EventBus.js';
 export class TempoSystem {
   constructor() {
     this.value = 50;
+    this.targetValue = 50;
     this.REST = 50;
-    this.DECAY_RATE = 8;
+    this.DECAY_RATE = 0;
     this.isCrashed = false;
     this.crashRecoverTimer = 0;
     this.sustainedTimer = 0;
@@ -52,21 +53,38 @@ export class TempoSystem {
 
     if (this.sustainedTimer > 0) {
       this.sustainedTimer = Math.max(0, this.sustainedTimer - dt);
-      return;
+    } else {
+      // Update target via natural decay
+      const dir = this.REST - this.targetValue;
+      if (Math.abs(dir) > 0.1) {
+        this.targetValue += Math.sign(dir) * this.DECAY_RATE * this.modifiers.decayRate * dt;
+        this.targetValue = Math.max(0, Math.min(100, this.targetValue));
+      }
     }
 
-    const dir = this.REST - this.value;
-    if (Math.abs(dir) < 0.1) {
-      if (this.value !== this.REST) this.setValue(this.REST);
-      return;
+    // Smoothly animate actual value towards target
+    const diff = this.targetValue - this.value;
+    if (Math.abs(diff) > 0.1) {
+      const moveSpeed = 40 * dt; // 40 points per second lerp speed
+      if (Math.abs(diff) <= moveSpeed) {
+        this.setValue(this.targetValue, true);
+      } else {
+        this.setValue(this.value + Math.sign(diff) * moveSpeed, true);
+      }
     }
-
-    this.setValue(this.value + Math.sign(dir) * this.DECAY_RATE * this.modifiers.decayRate * dt);
   }
 
-  setValue(newVal) {
+  setValue(newVal, isLerpStep = false) {
     const oldZone = this.stateName();
-    this.value = Math.max(0, Math.min(100, newVal));
+    const actualVal = Math.max(0, Math.min(100, newVal));
+    
+    if (isLerpStep) {
+      this.value = actualVal;
+    } else {
+      this.value = actualVal;
+      this.targetValue = actualVal;
+    }
+    
     const newZone = this.stateName();
 
     if (oldZone !== newZone) {
@@ -81,7 +99,7 @@ export class TempoSystem {
   _add(amount) {
     if (amount === 0 || this.isCrashed) return;
     if (amount > 0) amount *= this.modifiers.gainMult;
-    this.setValue(this.value + amount);
+    this.targetValue = Math.max(0, Math.min(100, this.targetValue + amount));
   }
 
   onComboHit(hitNum) { this._add(hitNum === 3 ? 15 : 4); }

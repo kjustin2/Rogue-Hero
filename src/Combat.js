@@ -276,29 +276,48 @@ export class CombatManager {
     }
   }
 
-  drawRangeIndicator(ctx, player, hand, cardDefs) {
+  drawRangeIndicator(ctx, player, hand, cardDefs, selectedCardSlot) {
     if (!player) return;
     let ranges = [];
+    const selectedCardId = hand[selectedCardSlot];
+    
     for (let cardId of hand) {
       if (!cardId) continue;
       const def = cardDefs[cardId];
       if (!def) continue;
       const existing = ranges.find(r => r.range === def.range);
       if (!existing) {
-        ranges.push({ range: def.range, color: def.color || '#ffffff', name: def.name });
+        ranges.push({ range: def.range, color: def.color || '#ffffff', name: def.name, isSelected: cardId === selectedCardId });
+      } else if (cardId === selectedCardId) {
+        existing.isSelected = true;
       }
     }
     ranges.sort((a, b) => a.range - b.range);
 
+    ctx.save();
     for (const r of ranges) {
       ctx.beginPath();
-      ctx.setLineDash([6, 8]);
       ctx.arc(player.x, player.y, r.range, 0, Math.PI * 2);
-      ctx.strokeStyle = r.color + '33';
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.setLineDash([]);
+      
+      if (r.isSelected) {
+        ctx.setLineDash([]);
+        ctx.strokeStyle = r.color;
+        ctx.lineWidth = 3;
+        ctx.shadowColor = r.color;
+        ctx.shadowBlur = 15;
+        ctx.stroke();
+        
+        ctx.fillStyle = r.color + '11'; // Very faint solid fill
+        ctx.fill();
+      } else {
+        ctx.shadowBlur = 0;
+        ctx.setLineDash([4, 8]);
+        ctx.strokeStyle = r.color + '33'; // More transparent
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
     }
+    ctx.restore();
   }
 
   drawReticles(ctx, hand, cardDefs, now) {

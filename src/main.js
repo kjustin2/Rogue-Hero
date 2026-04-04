@@ -23,8 +23,16 @@ window._itemDefs = ItemDefinitions;
 console.log('[Init] Rogue Hero booting...');
 const canvas = document.getElementById('game');
 if (!canvas) console.error('[Init] FATAL: canvas#game not found!');
-canvas.width = 1280;
-canvas.height = 720;
+window.addEventListener('resize', () => {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  window.CANVAS_W = canvas.width;
+  window.CANVAS_H = canvas.height;
+  if (room) { room.w = canvas.width; room.h = canvas.height; }
+  if (ui) { ui.width = canvas.width; ui.height = canvas.height; }
+});
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 window.CANVAS_W = canvas.width;
 window.CANVAS_H = canvas.height;
 
@@ -200,7 +208,7 @@ function startNewRun() {
   ui.setEnemies(enemies);
   combat.setLists([], player);
   gameState = 'map';
-  audio.silenceMusic();
+  audio.playBGM('map');
   console.log(`[Run] New run as "${selectedCharId}" difficulty=${DIFFICULTY_NAMES[selectedDifficulty]} seed=${runManager.seed}`);
 }
 
@@ -268,6 +276,13 @@ function spawnEnemies(node) {
 
   combat.setLists(enemies, player);
   ui.setEnemies(enemies);
+  
+  if (node.type === 'boss') {
+    audio.playBGM('boss');
+  } else {
+    audio.playBGM('normal');
+  }
+  
   console.log(`[Spawn] "${node.type}" F${f}: ${enemies.length} enemies [${enemies.map(e=>e.type).join(',')}]`);
 }
 
@@ -338,6 +353,7 @@ function handleCombatClear() {
   runStats.roomsCleared = roomsCleared;
   console.log(`[Combat] Cleared! Total: ${roomsCleared}`);
   audio.silenceMusic();
+  audio.playBGM('map');
 
   if (currentCombatNode && currentCombatNode.type === 'boss') {
     if (runManager.floor >= FLOORS_TO_WIN) {
@@ -412,6 +428,7 @@ function update(logicDt, realDt) {
   if (gameState === 'intro') {
     if (input.consumeKey('enter')) {
       audio.init();
+      audio.playBGM('menu');
       gameState = 'charSelect';
     }
     // Only advance when clicking the CONTINUE button (not anywhere)
@@ -422,6 +439,7 @@ function update(logicDt, realDt) {
       const mx = input.mouse.x, my = input.mouse.y;
       if (mx >= btnX && mx <= btnX + btnW && my >= btnY && my <= btnY + btnH) {
         audio.init();
+        audio.playBGM('menu');
         gameState = 'charSelect';
       }
     }
@@ -477,6 +495,7 @@ function update(logicDt, realDt) {
     if (input.consumeKey('enter') || input.consumeClick()) {
       gameState = 'charSelect';
       selectedCharId = null;
+      audio.playBGM('menu');
     }
     input.clearFrame();
     return;
@@ -492,8 +511,8 @@ function update(logicDt, realDt) {
       for (const b of pauseMenuBoxes) {
         if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
           if (b.action === 'resume') gameState = prevStateBeforePause || 'playing';
-          else if (b.action === 'restart') { gameState = 'charSelect'; selectedCharId = null; audio.silenceMusic(); }
-          else if (b.action === 'quit') { gameState = 'charSelect'; selectedCharId = null; audio.silenceMusic(); }
+          else if (b.action === 'restart') { gameState = 'charSelect'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
+          else if (b.action === 'quit') { gameState = 'intro'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
           break;
         }
       }
@@ -744,7 +763,7 @@ function render() {
     ctx.font = '13px monospace';
     ctx.textAlign = 'left';
     const lines = [
-      '◆ WASD/Arrows to move, SPACE to dodge (i-frames, no AP cost)',
+      '◆ WASD/Arrows to move, SPACE to dodge towards mouse (no AP cost)',
       '◆ LEFT CLICK to attack with your selected card',
       '◆ RIGHT CLICK to cycle between equipped cards (or press 1-4)',
       '◆ F key: Manual Tempo Crash at 85+ Tempo (huge AoE burst)',
@@ -928,11 +947,28 @@ function render() {
     runManager.drawMap(renderer.ctx, canvas.width, canvas.height);
     const ctx = renderer.ctx;
     const ch = Characters[selectedCharId];
+    
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillRect(0, 0, canvas.width, 50);
+    ctx.strokeStyle = ch ? ch.color : '#fff';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0, 50); ctx.lineTo(canvas.width, 50); ctx.stroke();
+
     ctx.fillStyle = ch ? ch.color : '#aaa';
-    ctx.font = '14px monospace';
+    ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'left';
-    const relicCount = itemManager.equipped.length;
-    ctx.fillText(`${ch?.name || 'Hero'}  |  HP: ${player.hp}/${player.maxHp}  |  Cards: ${deckManager.collection.length}  |  Relics: ${relicCount}  |  Floor ${runManager.floor}/${FLOORS_TO_WIN}`, 20, canvas.height - 40);
+    ctx.fillText(`HERO: ${ch?.name || 'Unknown'}`, 20, 30);
+
+    const hpW = 200, hpH = 16;
+    ctx.fillStyle = '#331111';
+    ctx.fillRect(220, 18, hpW, hpH);
+    ctx.fillStyle = '#ff3333';
+    ctx.fillRect(220, 18, (player.hp / player.maxHp) * hpW, hpH);
+    ctx.fillStyle = '#fff';
+    ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 220 + hpW + 15, 30);
+
+    ctx.fillStyle = '#ddd';
+    ctx.fillText(`Cards: ${deckManager.collection.length}  |  Relics: ${itemManager.equipped.length}  |  Floor ${runManager.floor}/${FLOORS_TO_WIN}`, canvas.width - 400, 30);
     return;
   }
 
@@ -978,7 +1014,7 @@ function render() {
   room.draw(renderer.ctx);
   for (const e of enemies) e.drawTelegraph(renderer.ctx, now);
   if (gameState === 'playing') {
-    combat.drawRangeIndicator(renderer.ctx, player, deckManager.hand, CardDefinitions);
+    combat.drawRangeIndicator(renderer.ctx, player, deckManager.hand, CardDefinitions, selectedCardSlot);
     combat.drawReticles(renderer.ctx, deckManager.hand, CardDefinitions, now);
   }
   for (const e of enemies) e.draw(renderer.ctx, now);
@@ -1057,22 +1093,24 @@ function drawDraftScreen() {
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(68, 68, 85, 0.3)';
-    ctx.font = 'bold 80px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(i + 1, x + CARD_W / 2, startY + CARD_H / 2 + 30);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`[${i + 1}]`, x + CARD_W - 12, startY + 22);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 20px monospace';
-    ctx.fillText(def.name, x + CARD_W / 2, startY + 40);
+    ctx.textAlign = 'center';
+    ctx.fillText(def.name, x + CARD_W / 2, startY + 35);
 
     ctx.fillStyle = '#44aaff';
     ctx.beginPath();
-    ctx.arc(x + 30, startY + 30, 16, 0, Math.PI * 2);
+    // Shifted cost badge to overlap the top-left edge nicely out of the way
+    ctx.arc(x, startY, 18, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 16px monospace';
-    ctx.fillText(def.cost, x + 30, startY + 36);
+    ctx.font = 'bold 18px monospace';
+    ctx.fillText(def.cost, x, startY + 6);
 
     ctx.fillStyle = '#aaa';
     ctx.font = '12px monospace';
@@ -1087,8 +1125,8 @@ function drawDraftScreen() {
     ctx.fillText(`${def.damage} DMG  |  ${def.type.toUpperCase()}`, x + CARD_W / 2, startY + 115);
 
     ctx.fillStyle = '#cccccc';
-    ctx.font = '13px monospace';
-    ui._wrapText(ctx, def.desc, x + 10, startY + 150, CARD_W - 20, 18);
+    ctx.font = '11px monospace';
+    ui._wrapText(ctx, def.desc, x + 10, startY + 150, CARD_W - 20, 16);
 
     ctx.fillStyle = '#44ff88';
     ctx.font = 'bold 12px monospace';
@@ -1161,6 +1199,20 @@ function drawPauseMenu() {
   ctx.textAlign = 'center';
   ctx.fillText('Press ESC to resume', canvas.width / 2, py + panelH - 20);
 }
+
+window.addEventListener('click', () => {
+  if (gameState === 'intro' && audio.currentBgm !== 'Main_Menu.wav') {
+    audio.init();
+    audio.playBGM('intro');
+  }
+});
+
+window.addEventListener('keydown', () => {
+  if (gameState === 'intro' && audio.currentBgm !== 'Main_Menu.wav') {
+    audio.init();
+    audio.playBGM('intro');
+  }
+});
 
 console.log('[Init] Game ready, starting engine.');
 const engine = new Engine(update, render);
