@@ -94,6 +94,16 @@ let pauseQuitConfirm = false;
 let discardPendingCardId = null;
 let discardReturnState = 'map';
 
+// World effect arrays
+let traps = [];
+let orbs = [];
+let echoes = [];
+let sigils = [];
+let groundWaves = [];
+let beamFlashes = [];
+let channelState = null;
+let _lastCardPlayed = null; // for aftershock echo
+
 // Run stats
 let runStats = {
   kills: 0, roomsCleared: 0, perfectDodges: 0, cardsPlayed: 0,
@@ -119,7 +129,27 @@ events.on('PLAYER_SHOT_HIT', ({ enemy, damage, freeze }) => {
   if (freeze && enemy.alive) enemy.stagger(1.2);
 });
 
-events.on('ENEMY_MELEE_HIT', ({ damage }) => {
+events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
+  // Parry check
+  if (player.parryWindow && player.parryWindow.timer > 0) {
+    player.parryWindow.timer = 0;
+    events.emit('COUNTER_STRIKE', { source, power: player.parryWindow.power, def: player.parryWindow.def });
+    particles.spawnDamageNumber(player.x, player.y - 30, 'PARRY!');
+    events.emit('HIT_STOP', 0.15);
+    events.emit('SCREEN_SHAKE', { duration: 0.2, intensity: 0.3 });
+    events.emit('PLAY_SOUND', 'perfect');
+    return;
+  }
+  // Blood Rune sigil trigger
+  for (let si = sigils.length - 1; si >= 0; si--) {
+    if (sigils[si].def.sigilTrigger === 'takeDamage' && !sigils[si].triggered) {
+      sigils[si].triggered = true;
+      player.heal(2);
+      tempo._add(30);
+      particles.spawnDamageNumber(player.x, player.y - 40, 'BLOOD RUNE!');
+      particles.spawnBurst(player.x, player.y, '#ff2255');
+    }
+  }
   damage = Math.round(damage * (DIFFICULTY_MODS[selectedDifficulty]?.dmgMult || 1));
   const passives = Characters[selectedCharId]?.passives;
   // Frost Cold damage reduction
@@ -222,6 +252,73 @@ events.on('OVERLOADED', ({ x, y }) => {
 events.on('CRASH_TEXT', ({ dmg }) => {
   particles.spawnCrashText(dmg);
   particles.spawnCrashFlash();
+  // Trigger crash runes
+  for (const s of sigils) {
+    if (s.def && s.def.sigilTrigger === 'crash' && !s.triggered) {
+      s.triggered = true;
+      _fireSigil(s);
+    }
+  }
+});
+
+events.on('SPAWN_TRAP', (data) => { traps.push({ ...data, triggered: false }); });
+events.on('SPAWN_ORBS', ({ count, radius, damage, life, speed, color, freeze, spiral }) => {
+  for (let i = 0; i < count; i++) {
+    orbs.push({
+      angle: (i / count) * Math.PI * 2,
+      baseRadius: radius,
+      radius,
+      speed,
+      damage,
+      life,
+      maxLife: life,
+      color,
+      freeze,
+      spiral,
+      hitCooldowns: new Map(),
+    });
+  }
+});
+events.on('SPAWN_ECHO', (data) => { echoes.push({ ...data, timer: data.delay }); });
+events.on('SPAWN_SIGIL', (data) => {
+  // Max 2 sigils; remove oldest if needed
+  if (sigils.length >= 2) sigils.shift();
+  sigils.push({ ...data, triggered: false });
+});
+events.on('START_CHANNEL', ({ def, dmgMult }) => {
+  channelState = { def, dmgMult, tickTimer: 0, apTimer: 0 };
+});
+events.on('SPAWN_GROUND_WAVE', (data) => {
+  groundWaves.push({
+    ...data,
+    traveled: 0,
+    hitEnemies: new Set(),
+    zoneLife: 0,
+    zoneX: 0, zoneY: 0,
+  });
+});
+events.on('SPAWN_BEAM_FLASH', (data) => {
+  beamFlashes.push({ ...data, life: 0.12, maxLife: 0.12 });
+});
+events.on('COUNTER_STRIKE', ({ source, power, def }) => {
+  if (!source || !source.alive) return;
+  if (def && def.counterPct) {
+    const pctDmg = Math.round(source.maxHp * def.counterPct);
+    combat.applyDamageToEnemy(source, pctDmg);
+    particles.spawnDamageNumber(source.x, source.y - 20, `${pctDmg} DMG`);
+  } else if (power > 0) {
+    combat.applyDamageToEnemy(source, power);
+    particles.spawnDamageNumber(source.x, source.y - 20, `${power} DMG`);
+  }
+  particles.spawnBurst(source.x, source.y, '#ffdd44');
+  if (def && def.counterStagger && source.alive) source.stagger(def.counterStagger);
+  if (def && def.counterReset) {
+    tempo.setValue(50);
+    player.dodging = true;
+    player.dodgeTimer = 1.0;
+    player.dodgeCooldown = 1.0;
+  }
+  particles.spawnDamageNumber(player.x, player.y - 30, 'COUNTER!');
 });
 
 events.on('SPLITTER_DIED', ({ x, y, difficultySpdMult }) => {
@@ -416,6 +513,13 @@ function spawnEnemies(node) {
   player._undyingUsed = false;
   player.guardStacks = 0;
   player._guardDecayTimer = 0;
+  traps.length = 0;
+  orbs.length = 0;
+  echoes.length = 0;
+  sigils.length = 0;
+  groundWaves.length = 0;
+  beamFlashes.length = 0;
+  channelState = null;
   
   if (node.type === 'boss') {
     audio.playBGM('boss');
@@ -503,7 +607,8 @@ function checkRunUnlocks(won) {
       newUnlocks.push(`Unlocked ${DIFFICULTY_NAMES[currentMax + 1]} difficulty for ${Characters[selectedCharId].name}`);
     }
     const bonusPool = ['chain_lightning', 'thunder_clap', 'phantom_step', 'blood_pact', 'iron_wall', 'execute', 'tempo_surge', 'shadow_mark', 'second_wind', 'adrenaline', 'smoke_screen', 'glass_cannon', 'reaper',
-      'earthshaker', 'death_blow', 'berserkers_oath', 'last_stand', 'mirror_strike', 'deaths_bargain', 'resonant_pulse', 'snipers_mark', 'leech_field', 'soul_drain', 'marked_for_death'];
+      'earthshaker', 'death_blow', 'berserkers_oath', 'last_stand', 'mirror_strike', 'deaths_bargain', 'resonant_pulse', 'snipers_mark', 'leech_field', 'soul_drain', 'marked_for_death',
+      'sunbeam', 'tempo_blade_beam', 'volatile_rune_trap', 'death_spiral', 'lightning_arc_chan', 'crash_rune', 'resonance_rune', 'blood_rune', 'time_bomb', 'judgment_line', 'riposte_blade_counter', 'perfect_guard', 'death_sentence_counter', 'tempo_shift_stance'];
     for (const cid of bonusPool) {
       if (!meta.isBonusCardUnlocked(cid)) {
         meta.unlockBonusCard(cid);
@@ -541,6 +646,113 @@ function handleCombatClear() {
   if (gameState === 'playing') {
     if (generateDraft()) gameState = 'draft';
     else gameState = 'map';
+  }
+}
+
+function _fireSigil(s) {
+  const { x, y, def, dmg } = s;
+  particles.spawnRing(x, y, def.sigilAoE || 150, def.color || '#ff4400');
+  particles.spawnBurst(x, y, def.color || '#ff4400');
+  events.emit('PLAY_SOUND', 'crash');
+  switch (def.sigilTrigger) {
+    case 'enterHot':
+    case 'crash': {
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const dx = e.x - x, dy = e.y - y;
+        if (dx*dx+dy*dy < (def.sigilAoE||150)**2) combat.applyDamageToEnemy(e, dmg);
+      }
+      if (def.id === 'crash_rune') {
+        events.emit('SPAWN_ORBS', { count: 4, radius: 80, damage: 12, life: 3.0, speed: 3.5, color: '#ff2200', freeze: 0, spiral: false });
+      }
+      break;
+    }
+    case 'enterCold': {
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const dx = e.x - x, dy = e.y - y;
+        if (dx*dx+dy*dy < (def.sigilAoE||200)**2) e.stagger(def.sigilFreeze || 2.5);
+      }
+      break;
+    }
+    case 'resonance': {
+      player._resonanceActive = 3.0;
+      particles.spawnDamageNumber(x, y - 30, 'RESONANCE!');
+      break;
+    }
+  }
+  events.emit('SCREEN_SHAKE', { duration: 0.3, intensity: 0.5 });
+}
+
+function _fireChannelTick(ch, dmgMult) {
+  const def = ch.def;
+  const dmg = Math.round(def.tickDamage * dmgMult);
+  const range = def.channelRange || 120;
+  tempo._add(def.tempoShift || 2);
+  switch (def.channelType) {
+    case 'cone': {
+      const adx = input.mouse.x - player.x, ady = input.mouse.y - player.y;
+      const alen = Math.sqrt(adx*adx+ady*ady) || 1;
+      const nx = adx/alen, ny = ady/alen;
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const ex = e.x - player.x, ey = e.y - player.y;
+        const proj = ex*nx + ey*ny;
+        if (proj < 0 || proj > range) continue;
+        const perp = Math.abs(ex*ny - ey*nx);
+        if (perp < 40 + e.r) {
+          combat.applyDamageToEnemy(e, dmg);
+          particles.spawnBurst(e.x, e.y, '#ff5500');
+        }
+      }
+      particles.spawnBurst(player.x + nx*range*0.6, player.y + ny*range*0.6, '#ff550088');
+      break;
+    }
+    case 'arc': {
+      let nearest = null, nearestDist = Infinity;
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const dx = e.x - player.x, dy = e.y - player.y;
+        const d = Math.sqrt(dx*dx+dy*dy);
+        if (d < range + e.r && d < nearestDist) { nearest = e; nearestDist = d; }
+      }
+      if (nearest) {
+        combat.applyDamageToEnemy(nearest, dmg);
+        particles.spawnSlash(player.x, player.y, nearest.x, nearest.y, '#ffff44');
+        // Chain to secondary
+        let secondary = null, sDist = Infinity;
+        for (const e of enemies) {
+          if (!e.alive || e === nearest) continue;
+          const dx = e.x - nearest.x, dy = e.y - nearest.y;
+          const d = Math.sqrt(dx*dx+dy*dy);
+          if (d < 150 && d < sDist) { secondary = e; sDist = d; }
+        }
+        if (secondary) {
+          combat.applyDamageToEnemy(secondary, Math.round(dmg * 1.5));
+          particles.spawnSlash(nearest.x, nearest.y, secondary.x, secondary.y, '#ffff88');
+        }
+      }
+      break;
+    }
+    case 'drain': {
+      const adx = input.mouse.x - player.x, ady = input.mouse.y - player.y;
+      const alen = Math.sqrt(adx*adx+ady*ady) || 1;
+      const nx = adx/alen, ny = ady/alen;
+      for (const e of enemies) {
+        if (!e.alive) continue;
+        const ex = e.x - player.x, ey = e.y - player.y;
+        const proj = ex*nx + ey*ny;
+        if (proj < 0 || proj > range) continue;
+        const perp = Math.abs(ex*ny - ey*nx);
+        if (perp < 12 + e.r) {
+          combat.applyDamageToEnemy(e, dmg);
+          tempo._add(3);
+          particles.spawnBurst(e.x, e.y, '#cc44cc');
+        }
+      }
+      particles.spawnBurst(player.x + nx*range*0.5, player.y + ny*range*0.5, '#cc44cc88');
+      break;
+    }
   }
 }
 
@@ -863,6 +1075,7 @@ function update(logicDt, realDt) {
       if (player.budget >= def.cost) {
         combat.executeCard(player, def, input.mouse);
         runStats.cardsPlayed++;
+        if (def.type !== 'echo') _lastCardPlayed = def;
       }
       else events.emit('PLAY_SOUND', 'miss');
     }
@@ -958,6 +1171,245 @@ function update(logicDt, realDt) {
     handleCombatClear();
   }
 
+  // Update parry window
+  if (player.parryWindow) {
+    player.parryWindow.timer -= logicDt;
+    if (player.parryWindow.timer <= 0) player.parryWindow = null;
+  }
+
+  // Update resonance timer
+  if (player._resonanceActive > 0) player._resonanceActive -= logicDt;
+
+  // Update traps
+  for (let i = traps.length - 1; i >= 0; i--) {
+    const t = traps[i];
+    t.life -= logicDt;
+    if (t.life <= 0) { traps.splice(i, 1); continue; }
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - t.x, dy = e.y - t.y;
+      if (dx * dx + dy * dy < (t.radius + e.r) ** 2) {
+        // Trigger
+        if (t.damage > 0) combat.applyDamageToEnemy(e, t.damage);
+        if (t.stagger > 0 && e.alive) e.stagger(t.stagger);
+        if (t.freeze > 0 && e.alive) e.stagger(t.freeze);
+        if (t.aoe > 0) {
+          for (const oe of enemies) {
+            if (!oe.alive || oe === e) continue;
+            const odx = oe.x - t.x, ody = oe.y - t.y;
+            if (odx * odx + ody * ody < t.aoe * t.aoe) {
+              const aoeDmg = t.volatile && tempo.value >= 90 ? t.damage * 2 : t.damage;
+              if (aoeDmg > 0) combat.applyDamageToEnemy(oe, aoeDmg);
+              if (t.stagger > 0 && oe.alive) oe.stagger(t.stagger);
+            }
+          }
+        }
+        particles.spawnBurst(t.x, t.y, t.color || '#ffaa44');
+        particles.spawnRing(t.x, t.y, Math.max(t.radius, t.aoe || 0) + 20, t.color || '#ffaa44');
+        events.emit('PLAY_SOUND', 'heavyHit');
+        traps.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  // Update orbs
+  const ORB_HIT_COOLDOWN = 0.4;
+  for (let i = orbs.length - 1; i >= 0; i--) {
+    const o = orbs[i];
+    o.life -= logicDt;
+    if (o.life <= 0) { orbs.splice(i, 1); continue; }
+    o.angle += o.speed * logicDt;
+    if (o.spiral) {
+      const t = 1 - o.life / o.maxLife;
+      o.radius = o.baseRadius + (o.baseRadius * 2) * t;
+    }
+    const ox = player.x + Math.cos(o.angle) * o.radius;
+    const oy = player.y + Math.sin(o.angle) * o.radius;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - ox, dy = e.y - oy;
+      if (dx * dx + dy * dy < (8 + e.r) ** 2) {
+        const now2 = performance.now();
+        const lastHit = o.hitCooldowns.get(e) || 0;
+        if (now2 - lastHit > ORB_HIT_COOLDOWN * 1000) {
+          o.hitCooldowns.set(e, now2);
+          combat.applyDamageToEnemy(e, o.damage);
+          if (o.freeze > 0 && e.alive) e.stagger(o.freeze);
+          particles.spawnBurst(ox, oy, o.color);
+        }
+      }
+    }
+  }
+
+  // Update echoes
+  for (let i = echoes.length - 1; i >= 0; i--) {
+    const echo = echoes[i];
+    echo.timer -= logicDt;
+    if (echo.timer > 0) continue;
+    // Execute echo
+    const { x, y, def, dmg, inputX, inputY } = echo;
+    switch (def.echoType) {
+      case 'melee': {
+        let nearest = null, nearestDist = Infinity;
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          const dx = e.x - x, dy = e.y - y;
+          const d = Math.sqrt(dx*dx+dy*dy);
+          if (d < (def.range || 90) + e.r && d < nearestDist) { nearest = e; nearestDist = d; }
+        }
+        if (nearest) {
+          combat.applyDamageToEnemy(nearest, dmg);
+          particles.spawnSlash(x, y, nearest.x, nearest.y, def.color || '#cc88ff');
+        }
+        particles.spawnBurst(x, y, def.color || '#cc88ff');
+        break;
+      }
+      case 'nova': {
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          const dx = e.x - x, dy = e.y - y;
+          if (dx*dx+dy*dy < (def.range||160)**2) {
+            combat.applyDamageToEnemy(e, dmg);
+            if (e.alive) e.stagger(1.0);
+          }
+        }
+        particles.spawnRing(x, y, def.range||160, def.color||'#aaeeff');
+        break;
+      }
+      case 'bomb': {
+        const bombDmg = Math.round(dmg * (1 + tempo.value / 100));
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          const dx = e.x - x, dy = e.y - y;
+          if (dx*dx+dy*dy < (def.range||150)**2) {
+            combat.applyDamageToEnemy(e, bombDmg);
+          }
+        }
+        particles.spawnRing(x, y, def.range||150, '#ffcc00');
+        particles.spawnBurst(x, y, '#ffcc00');
+        events.emit('SCREEN_SHAKE', { duration: 0.3, intensity: 0.6 });
+        events.emit('HIT_STOP', 0.15);
+        break;
+      }
+      case 'dash': {
+        let nearest = null, nearestDist = Infinity;
+        for (const e of enemies) {
+          if (!e.alive) continue;
+          const dx = e.x - x, dy = e.y - y;
+          const d = Math.sqrt(dx*dx+dy*dy);
+          if (d < 300 && d < nearestDist) { nearest = e; nearestDist = d; }
+        }
+        if (nearest) {
+          combat.applyDamageToEnemy(nearest, dmg);
+          particles.spawnSlash(x, y, nearest.x, nearest.y, def.color||'#88aaff');
+          particles.spawnBurst(nearest.x, nearest.y, def.color||'#88aaff');
+        }
+        break;
+      }
+      case 'repeat': {
+        if (_lastCardPlayed) {
+          const fakePlayer = { x, y, budget: 999, comboCount: player.comboCount, recentDodgeTimer: 0, guardStacks: 0, oathStacks: 0 };
+          combat.setLists(enemies, fakePlayer);
+          combat.executeCard(fakePlayer, _lastCardPlayed, { x: inputX, y: inputY });
+          combat.setLists(enemies, player);
+        }
+        break;
+      }
+    }
+    particles.spawnBurst(x, y, def.color || '#cc88ff');
+    events.emit('PLAY_SOUND', 'heavyHit');
+    echoes.splice(i, 1);
+  }
+
+  // Update sigils (check Tempo triggers)
+  for (let i = sigils.length - 1; i >= 0; i--) {
+    const s = sigils[i];
+    if (s.triggered) { sigils.splice(i, 1); continue; }
+    let fire = false;
+    switch (s.def.sigilTrigger) {
+      case 'enterHot':    fire = tempo.value >= 70 && (tempo.value - (tempo.DECAY_RATE || 5) * 0.016) < 70; break;
+      case 'enterCold':   fire = tempo.value < 30 && (tempo.value + (tempo.DECAY_RATE || 5) * 0.016) >= 30; break;
+      case 'resonance':   fire = Math.abs(tempo.value - 50) <= 5; break;
+      case 'crash':       break; // handled via event
+      case 'takeDamage':  break; // handled via event
+    }
+    if (fire) {
+      s.triggered = true;
+      _fireSigil(s);
+    }
+  }
+
+  // Update ground waves
+  for (let i = groundWaves.length - 1; i >= 0; i--) {
+    const w = groundWaves[i];
+    const prevTraveled = w.traveled;
+    w.traveled += w.def.waveSpeed * logicDt;
+    if (w.traveled >= w.def.range) { w.traveled = w.def.range; }
+
+    // Check enemies along the wave front
+    const wWidth = w.def.waveWidth || 30;
+    for (const e of enemies) {
+      if (!e.alive || w.hitEnemies.has(e)) continue;
+      const ex = e.x - w.x, ey = e.y - w.y;
+      // Project onto wave direction
+      const proj = ex * w.dx + ey * w.dy;
+      if (proj < prevTraveled - 10 || proj > w.traveled + e.r) continue;
+      // Perpendicular distance
+      const perp = Math.abs(ex * (-w.dy) + ey * w.dx);
+      if (perp < wWidth + e.r) {
+        w.hitEnemies.add(e);
+        combat.applyDamageToEnemy(e, w.dmg);
+        if (w.def.waveKnockback && e.alive) {
+          e.x += w.dx * w.def.waveKnockback;
+          e.y += w.dy * w.def.waveKnockback;
+        }
+        if (w.def.wavePushBack && e.alive) {
+          e.x -= w.dx * w.def.wavePushBack;
+          e.y -= w.dy * w.def.wavePushBack;
+        }
+        if (w.def.wavePull && e.alive) {
+          e.x += w.dx * w.def.wavePull * 0.5;
+          e.y += w.dy * w.def.wavePull * 0.5;
+        }
+        if (w.def.waveStagger && e.alive) e.stagger(w.def.waveStagger);
+        particles.spawnBurst(e.x, e.y, w.def.color || '#cc8833');
+      }
+    }
+
+    if (w.traveled >= w.def.range) {
+      groundWaves.splice(i, 1);
+    }
+  }
+
+  // Update beam flashes
+  for (let i = beamFlashes.length - 1; i >= 0; i--) {
+    beamFlashes[i].life -= logicDt;
+    if (beamFlashes[i].life <= 0) beamFlashes.splice(i, 1);
+  }
+
+  // Channel: handle while mouse held
+  if (channelState && input.mouse.leftDown) {
+    const ch = channelState;
+    ch.apTimer = (ch.apTimer || 0) + logicDt;
+    ch.tickTimer = (ch.tickTimer || 0) + logicDt;
+    // AP drain
+    const drainInterval = 1.0 / (ch.def.apDrainRate || 0.5);
+    if (ch.apTimer >= drainInterval) {
+      ch.apTimer -= drainInterval;
+      if (player.budget < 0.5) { channelState = null; }
+      else { player.budget -= 0.5; }
+    }
+    // Tick
+    const tickRate = ch.def.tickRate || 0.1;
+    if (channelState && ch.tickTimer >= tickRate) {
+      ch.tickTimer -= tickRate;
+      _fireChannelTick(ch, ch.dmgMult);
+    }
+  } else if (!input.mouse.leftDown) {
+    channelState = null;
+  }
+
   particles.update(logicDt);
   renderer.updateShake(realDt);
   input.clearFrame();
@@ -991,6 +1443,124 @@ function getDraftClickIndex(mx, my) {
     if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return b.idx;
   }
   return -1;
+}
+
+function _drawWorldObjects(ctx, now) {
+  ctx.save();
+  // Traps
+  for (const t of traps) {
+    const pulse = (Math.sin(now / 300) + 1) * 0.5;
+    ctx.beginPath();
+    ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = (t.color || '#ffaa44') + Math.round((0.4 + pulse * 0.4) * 255).toString(16).padStart(2,'0');
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = (t.color || '#ffaa44') + '22';
+    ctx.fill();
+  }
+  // Sigils
+  for (const s of sigils) {
+    const pulse = (Math.sin(now / 500) + 1) * 0.5;
+    const r = 22 + pulse * 6;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = s.def.color || '#ff4400';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = (s.def.color || '#ff4400') + '22';
+    ctx.fill();
+    // Inner hex
+    ctx.beginPath();
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2 + now * 0.001;
+      const hx = s.x + Math.cos(a) * (r * 0.6);
+      const hy = s.y + Math.sin(a) * (r * 0.6);
+      k === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy);
+    }
+    ctx.closePath();
+    ctx.strokeStyle = (s.def.color || '#ff4400') + 'aa';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  // Ground waves
+  for (const w of groundWaves) {
+    const t2 = w.traveled / (w.def.range || 500);
+    const wx = w.x + w.dx * w.traveled;
+    const wy = w.y + w.dy * w.traveled;
+    const pw = (w.def.waveWidth || 30) * 2;
+    const px2 = -w.dy, py2 = w.dx; // perpendicular
+    ctx.beginPath();
+    ctx.moveTo(wx + px2 * pw, wy + py2 * pw);
+    ctx.lineTo(wx - px2 * pw, wy - py2 * pw);
+    ctx.strokeStyle = w.def.color || '#cc8833';
+    ctx.lineWidth = 4;
+    ctx.globalAlpha = 0.7 * (1 - t2 * 0.5);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  // Echo ghosts
+  for (const e of echoes) {
+    const pct = 1 - e.timer / e.delay;
+    ctx.globalAlpha = 0.25 + pct * 0.35;
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 14, 0, Math.PI * 2);
+    ctx.fillStyle = e.def.color || '#cc88ff';
+    ctx.fill();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // Timer ring
+    ctx.beginPath();
+    ctx.arc(e.x, e.y, 22, -Math.PI / 2, -Math.PI / 2 + pct * Math.PI * 2);
+    ctx.strokeStyle = e.def.color || '#cc88ff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  // Beam flashes
+  for (const b of beamFlashes) {
+    const t3 = 1 - b.life / b.maxLife;
+    ctx.globalAlpha = (1 - t3) * 0.85;
+    ctx.beginPath();
+    ctx.moveTo(b.x1, b.y1);
+    ctx.lineTo(b.x2, b.y2);
+    ctx.strokeStyle = b.color || '#aaddff';
+    ctx.lineWidth = (b.width || 8) * (1 - t3 * 0.5);
+    ctx.shadowColor = b.color || '#aaddff';
+    ctx.shadowBlur = 15;
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+function _drawOrbs(ctx) {
+  if (orbs.length === 0) return;
+  ctx.save();
+  for (const o of orbs) {
+    const ox = player.x + Math.cos(o.angle) * o.radius;
+    const oy = player.y + Math.sin(o.angle) * o.radius;
+    const alpha = Math.min(1, o.life * 2);
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(ox, oy, 7, 0, Math.PI * 2);
+    ctx.fillStyle = o.color || '#ff8844';
+    ctx.shadowColor = o.color || '#ff8844';
+    ctx.shadowBlur = 10;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // Trail line to player
+    ctx.beginPath();
+    ctx.moveTo(player.x, player.y);
+    ctx.lineTo(ox, oy);
+    ctx.strokeStyle = (o.color || '#ff8844') + '33';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 // ── RENDER ──────────────────────────────────────────────────────
@@ -1339,6 +1909,8 @@ function render() {
   const now = performance.now();
   renderer.beginShakeScope();
   room.draw(renderer.ctx);
+  // Draw floor-layer world objects (traps, sigils, ground zones, beams)
+  _drawWorldObjects(renderer.ctx, now);
   for (const e of enemies) {
     e.drawTelegraph(renderer.ctx, now);
     e._drawIntentIcon(renderer.ctx, now);
@@ -1350,6 +1922,7 @@ function render() {
   for (const e of enemies) e.draw(renderer.ctx, now);
   projectiles.draw(renderer.ctx);
   player.draw(renderer.ctx, tempo);
+  _drawOrbs(renderer.ctx);
   particles.draw(renderer.ctx, canvas.width, canvas.height);
   renderer.endShakeScope();
 

@@ -393,6 +393,275 @@ export const CardDefinitions = {
     desc: '+8 bonus damage per Guard stack. For Vanguard. +10 Tempo.',
     ironRetort: true
   },
+
+  // ── BEAM ─────────────────────────────────────────────────────────
+  lancer: {
+    id: 'lancer', name: 'Lancer', cost: 2, tempoShift: 14, rarity: 'common',
+    damage: 22, range: 900, type: 'beam', color: '#aaddff',
+    desc: 'Beam hits first enemy in line. +14 Tempo.'
+  },
+  piercer: {
+    id: 'piercer', name: 'Piercer', cost: 3, tempoShift: 18, rarity: 'uncommon',
+    damage: 18, range: 900, type: 'beam', color: '#44ccff',
+    desc: 'Full-pierce beam hits every enemy on the line. +18 Tempo.',
+    beamPierce: true
+  },
+  null_ray: {
+    id: 'null_ray', name: 'Null Ray', cost: 2, tempoShift: -12, rarity: 'uncommon',
+    damage: 10, range: 900, type: 'beam', color: '#88aacc',
+    desc: 'Beam cancels the target\'s telegraph. -12 Tempo.',
+    nullRay: true
+  },
+  sunbeam: {
+    id: 'sunbeam', name: 'Sunbeam', cost: 4, tempoShift: 28, rarity: 'rare',
+    damage: 30, range: 900, type: 'beam', color: '#ffee44',
+    slotWidth: 2, beamWidth: 20, beamPierce: true,
+    desc: 'Wide pierce beam hits all enemies on the line. +28 Tempo. [2 SLOTS]',
+    bonusCard: true
+  },
+  cold_beam: {
+    id: 'cold_beam', name: 'Cold Beam', cost: 1, tempoShift: -8, rarity: 'common',
+    damage: 6, range: 900, type: 'beam', color: '#88ccff',
+    desc: 'Beam stagger first hit 1.5s. -8 Tempo.',
+    coldBeam: true
+  },
+  tempo_blade_beam: {
+    id: 'tempo_blade_beam', name: 'Tempo Blade', cost: 3, tempoShift: 0, rarity: 'rare',
+    damage: 0, range: 900, type: 'beam', color: '#ff88ff',
+    desc: 'Beam damage = current Tempo (0-100). +0 Tempo.',
+    bonusCard: true, tempoBlade: true
+  },
+
+  // ── TRAP ─────────────────────────────────────────────────────────
+  snare: {
+    id: 'snare', name: 'Snare', cost: 2, tempoShift: -10, rarity: 'common',
+    damage: 5, range: 400, type: 'trap', color: '#cc8844',
+    desc: 'Place a snare at cursor. Stagger enemy that steps in 2s. -10 Tempo.',
+    trapRadius: 30, trapStagger: 2.0, trapLife: 6.0
+  },
+  flashbang_trap: {
+    id: 'flashbang_trap', name: 'Flashbang', cost: 2, tempoShift: 12, rarity: 'uncommon',
+    damage: 0, range: 400, type: 'trap', color: '#ffeeaa',
+    desc: 'Place flashbang. On trigger: stagger all in 120px for 1.2s. +12 Tempo.',
+    trapRadius: 40, trapAoE: 120, trapStagger: 1.2, trapLife: 6.0
+  },
+  landmine: {
+    id: 'landmine', name: 'Landmine', cost: 3, tempoShift: 20, rarity: 'uncommon',
+    damage: 35, range: 400, type: 'trap', color: '#ffaa44',
+    desc: 'Place landmine at cursor. High damage on trigger. +20 Tempo.',
+    trapRadius: 35, trapLife: 8.0
+  },
+  freeze_mine: {
+    id: 'freeze_mine', name: 'Freeze Mine', cost: 2, tempoShift: -15, rarity: 'uncommon',
+    damage: 8, range: 400, type: 'trap', color: '#88aaff',
+    desc: 'Place mine that freezes trigger for 3s. -15 Tempo.',
+    trapRadius: 35, trapFreeze: 3.0, trapLife: 6.0
+  },
+  volatile_rune_trap: {
+    id: 'volatile_rune_trap', name: 'Volatile Rune', cost: 3, tempoShift: 25, rarity: 'rare',
+    damage: 20, range: 400, type: 'trap', color: '#ff6600',
+    desc: 'AoE 100px on trigger. Doubles if Critical Tempo. +25 Tempo.',
+    bonusCard: true, trapRadius: 40, trapAoE: 100, trapVolatile: true, trapLife: 8.0
+  },
+
+  // ── ORBIT ─────────────────────────────────────────────────────────
+  blade_ring: {
+    id: 'blade_ring', name: 'Blade Ring', cost: 3, tempoShift: 16, rarity: 'common',
+    damage: 8, range: 80, type: 'orbit', color: '#ff8844',
+    desc: 'Spawn 3 orbiting blades (80px, 3s). +16 Tempo.',
+    orbCount: 3, orbRadius: 80, orbLife: 3.0, orbSpeed: 2.5
+  },
+  frost_ring: {
+    id: 'frost_ring', name: 'Frost Ring', cost: 3, tempoShift: -18, rarity: 'uncommon',
+    damage: 4, range: 90, type: 'orbit', color: '#88ccff',
+    desc: 'Spawn 2 frost orbs (90px). Each hit freezes 0.8s. -18 Tempo.',
+    orbCount: 2, orbRadius: 90, orbLife: 4.0, orbSpeed: 2.0, orbFreeze: 0.8
+  },
+  raging_halo: {
+    id: 'raging_halo', name: 'Raging Halo', cost: 4, tempoShift: 24, rarity: 'uncommon',
+    damage: 14, range: 100, type: 'orbit', color: '#ff4400',
+    desc: '4 fast orbs (100px, 2s). +24 Tempo.',
+    orbCount: 4, orbRadius: 100, orbLife: 2.0, orbSpeed: 4.0
+  },
+  void_ring: {
+    id: 'void_ring', name: 'Void Ring', cost: 2, tempoShift: 8, rarity: 'common',
+    damage: 6, range: 60, type: 'orbit', color: '#8844cc',
+    desc: 'Cheap 2-orb ring (60px). +8 Tempo.',
+    orbCount: 2, orbRadius: 60, orbLife: 3.0, orbSpeed: 3.0
+  },
+  death_spiral: {
+    id: 'death_spiral', name: 'Death Spiral', cost: 4, tempoShift: 30, rarity: 'rare',
+    damage: 20, range: 60, type: 'orbit', color: '#cc0066',
+    slotWidth: 2,
+    desc: '3 orbs spiral outward 60→180px over 3s. +30 Tempo. [2 SLOTS]',
+    bonusCard: true, orbCount: 3, orbRadius: 60, orbLife: 3.0, orbSpeed: 3.0, orbSpiral: true
+  },
+
+  // ── CHANNEL ───────────────────────────────────────────────────────
+  flamethrower: {
+    id: 'flamethrower', name: 'Flamethrower', cost: 1, tempoShift: 2, rarity: 'uncommon',
+    damage: 0, range: 120, type: 'channel', color: '#ff5500',
+    desc: 'Hold: fire cone (120px). 6 dmg/tick, +2 Tempo/tick, 0.5 AP/s. -uncommon',
+    tickDamage: 6, tickRate: 0.08, apDrainRate: 0.5, channelRange: 120, channelType: 'cone'
+  },
+  lightning_arc_chan: {
+    id: 'lightning_arc_chan', name: 'Lightning Arc', cost: 1, tempoShift: 3, rarity: 'rare',
+    damage: 0, range: 200, type: 'channel', color: '#ffff44',
+    desc: 'Hold: arc to nearest enemy (200px), jumps to chain. 8 dmg/tick, +3/tick.',
+    bonusCard: true, tickDamage: 8, tickRate: 0.1, apDrainRate: 0.4, channelRange: 200, channelType: 'arc'
+  },
+  drain_beam_chan: {
+    id: 'drain_beam_chan', name: 'Drain Beam', cost: 1, tempoShift: -2, rarity: 'uncommon',
+    damage: 0, range: 180, type: 'channel', color: '#cc44cc',
+    desc: 'Hold: beam that steals Tempo (-5 enemy, +3 you). 4 dmg/tick.',
+    tickDamage: 4, tickRate: 0.1, apDrainRate: 0.3, channelRange: 180, channelType: 'drain'
+  },
+
+  // ── SIGIL ─────────────────────────────────────────────────────────
+  hot_rune: {
+    id: 'hot_rune', name: 'Hot Rune', cost: 2, tempoShift: 8, rarity: 'uncommon',
+    damage: 40, range: 150, type: 'sigil', color: '#ff4400',
+    desc: 'Place rune. Fires 150px AoE when Tempo enters Hot (70+). +8 Tempo.',
+    sigilTrigger: 'enterHot', sigilAoE: 150
+  },
+  cold_rune: {
+    id: 'cold_rune', name: 'Cold Rune', cost: 2, tempoShift: -8, rarity: 'uncommon',
+    damage: 0, range: 200, type: 'sigil', color: '#4488ff',
+    desc: 'Place rune. Freezes all in 200px when Tempo enters Cold (<30). -8 Tempo.',
+    sigilTrigger: 'enterCold', sigilAoE: 200, sigilFreeze: 2.5
+  },
+  crash_rune: {
+    id: 'crash_rune', name: 'Crash Rune', cost: 3, tempoShift: 10, rarity: 'rare',
+    damage: 60, range: 180, type: 'sigil', color: '#ff2200',
+    desc: 'Place rune. Detonates on any auto-crash. 60 AoE + 4 orbit orbs. +10 Tempo.',
+    bonusCard: true, sigilTrigger: 'crash', sigilAoE: 180
+  },
+  resonance_rune: {
+    id: 'resonance_rune', name: 'Resonance Rune', cost: 2, tempoShift: -5, rarity: 'rare',
+    damage: 0, range: 150, type: 'sigil', color: '#00eedd',
+    desc: 'Place rune. When Tempo is 45-55: double damage for 3s. -5 Tempo.',
+    bonusCard: true, sigilTrigger: 'resonance', sigilAoE: 150
+  },
+  blood_rune: {
+    id: 'blood_rune', name: 'Blood Rune', cost: 3, tempoShift: 15, rarity: 'rare',
+    damage: 0, range: 0, type: 'sigil', color: '#ff2255',
+    desc: 'Place rune. On taking damage: heal 2 HP + gain 30 Tempo. +15 Tempo.',
+    bonusCard: true, sigilTrigger: 'takeDamage'
+  },
+
+  // ── ECHO ─────────────────────────────────────────────────────────
+  phantom_slash: {
+    id: 'phantom_slash', name: 'Phantom Slash', cost: 2, tempoShift: 10, rarity: 'uncommon',
+    damage: 28, range: 90, type: 'echo', color: '#cc88ff',
+    desc: 'After 0.7s: ghost executes melee at your position. +10 Tempo.',
+    echoDelay: 0.7, echoType: 'melee'
+  },
+  delayed_nova: {
+    id: 'delayed_nova', name: 'Delayed Nova', cost: 3, tempoShift: -15, rarity: 'uncommon',
+    damage: 12, range: 160, type: 'echo', color: '#aaeeff',
+    desc: 'After 0.8s: frost nova at your position. Stagger all 1s. -15 Tempo.',
+    echoDelay: 0.8, echoType: 'nova'
+  },
+  time_bomb: {
+    id: 'time_bomb', name: 'Time Bomb', cost: 4, tempoShift: 22, rarity: 'rare',
+    damage: 50, range: 150, type: 'echo', color: '#ffcc00',
+    slotWidth: 2,
+    desc: 'After 1.2s: massive 150px AoE. Damage scales with Tempo at detonation. +22 Tempo. [2 SLOTS]',
+    bonusCard: true, echoDelay: 1.2, echoType: 'bomb'
+  },
+  ghost_step_echo: {
+    id: 'ghost_step_echo', name: 'Ghost Step', cost: 2, tempoShift: 6, rarity: 'common',
+    damage: 18, range: 90, type: 'echo', color: '#88aaff',
+    desc: 'After 0.5s: ghost dashes to nearest enemy at your original position. +6 Tempo.',
+    echoDelay: 0.5, echoType: 'dash'
+  },
+  aftershock: {
+    id: 'aftershock', name: 'Aftershock', cost: 3, tempoShift: 18, rarity: 'uncommon',
+    damage: 20, range: 120, type: 'echo', color: '#ff8844',
+    desc: 'After 0.9s: repeats last melee/cleave hit at your position. +18 Tempo.',
+    echoDelay: 0.9, echoType: 'repeat'
+  },
+
+  // ── GROUND ───────────────────────────────────────────────────────
+  tremor: {
+    id: 'tremor', name: 'Tremor', cost: 2, tempoShift: 14, rarity: 'common',
+    damage: 18, range: 400, type: 'ground', color: '#cc8833',
+    desc: 'Ground wave (400px, 60px wide). Knocks enemies 60px. +14 Tempo.',
+    waveWidth: 30, waveSpeed: 800, waveKnockback: 60
+  },
+  fissure: {
+    id: 'fissure', name: 'Fissure', cost: 4, tempoShift: 26, rarity: 'uncommon',
+    damage: 30, range: 500, type: 'ground', color: '#aa6600',
+    slotWidth: 2,
+    desc: 'Long wave. Leaves damaging zone for 2s (8/s). +26 Tempo. [2 SLOTS]',
+    waveWidth: 35, waveSpeed: 700, waveLeavesZone: true
+  },
+  void_rift: {
+    id: 'void_rift', name: 'Void Rift', cost: 3, tempoShift: 20, rarity: 'uncommon',
+    damage: 22, range: 450, type: 'ground', color: '#6622cc',
+    desc: 'Rift wave pulls all hit enemies 80px toward path center. +20 Tempo.',
+    waveWidth: 30, waveSpeed: 750, wavePull: 80
+  },
+  glacier_push: {
+    id: 'glacier_push', name: 'Glacier Push', cost: 3, tempoShift: -20, rarity: 'uncommon',
+    damage: 10, range: 450, type: 'ground', color: '#88aaff',
+    desc: 'Ice wave pushes all hit enemies 120px away. Stagger 0.5s. -20 Tempo.',
+    waveWidth: 30, waveSpeed: 700, wavePushBack: 120, waveStagger: 0.5
+  },
+  judgment_line: {
+    id: 'judgment_line', name: 'Judgment Line', cost: 4, tempoShift: 32, rarity: 'rare',
+    damage: 45, range: 1200, type: 'ground', color: '#ffdd22',
+    slotWidth: 2,
+    desc: 'Full-room wave, stagger all hit 0.8s. +32 Tempo. [2 SLOTS]',
+    bonusCard: true, waveWidth: 35, waveSpeed: 1100, waveStagger: 0.8
+  },
+
+  // ── COUNTER ───────────────────────────────────────────────────────
+  parry_card: {
+    id: 'parry_card', name: 'Parry', cost: 1, tempoShift: 15, rarity: 'uncommon',
+    damage: 35, range: 90, type: 'counter', color: '#ffdd44',
+    desc: 'Arm 0.4s parry. If hit: negate damage + 35 dmg counter. +15 Tempo.',
+    parryWindow: 0.4, counterDmg: 35
+  },
+  riposte_blade_counter: {
+    id: 'riposte_blade_counter', name: 'Riposte Blade', cost: 2, tempoShift: 20, rarity: 'rare',
+    damage: 55, range: 90, type: 'counter', color: '#ff8844',
+    desc: 'Arm 0.5s parry. Counter: 55 dmg + stagger 1s. +20 Tempo.',
+    bonusCard: true, parryWindow: 0.5, counterDmg: 55, counterStagger: 1.0
+  },
+  perfect_guard: {
+    id: 'perfect_guard', name: 'Perfect Guard', cost: 2, tempoShift: -5, rarity: 'rare',
+    damage: 0, range: 0, type: 'counter', color: '#44ffaa',
+    desc: 'Arm 0.6s parry. On success: reset Tempo to 50 + 1s invincibility. -5 Tempo.',
+    bonusCard: true, parryWindow: 0.6, counterDmg: 0, counterReset: true
+  },
+  death_sentence_counter: {
+    id: 'death_sentence_counter', name: 'Death Sentence', cost: 3, tempoShift: 30, rarity: 'rare',
+    damage: 0, range: 90, type: 'counter', color: '#ff0000',
+    slotWidth: 2,
+    desc: 'Arm 0.5s parry. Counter deals 30% of enemy MAX HP. +30 Tempo. [2 SLOTS]',
+    bonusCard: true, parryWindow: 0.5, counterDmg: 0, counterPct: 0.3
+  },
+
+  // ── STANCE ───────────────────────────────────────────────────────
+  blade_dance_stance: {
+    id: 'blade_dance_stance', name: 'Blade Dance', cost: 1, tempoShift: 5, rarity: 'uncommon',
+    damage: 0, range: 0, type: 'stance', color: '#ff6644',
+    desc: 'Toggle Offensive stance: melee DMG +40%, dodge cooldown +0.5s. +5 Tempo.',
+    stanceId: 'blade_dance'
+  },
+  iron_aegis_stance: {
+    id: 'iron_aegis_stance', name: 'Iron Aegis', cost: 1, tempoShift: -5, rarity: 'uncommon',
+    damage: 0, range: 0, type: 'stance', color: '#aabbcc',
+    desc: 'Toggle Defensive stance: incoming damage -2, dodge range +50%. -5 Tempo.',
+    stanceId: 'iron_aegis'
+  },
+  tempo_shift_stance: {
+    id: 'tempo_shift_stance', name: 'Tempo Shift', cost: 1, tempoShift: 0, rarity: 'rare',
+    damage: 0, range: 0, type: 'stance', color: '#44ffff',
+    desc: 'Toggle: Amp stance: all Tempo changes ×1.5. Damp stance: ×0.5.',
+    bonusCard: true, stanceId: 'tempo_shift'
+  },
 };
 
 export class DeckManager {

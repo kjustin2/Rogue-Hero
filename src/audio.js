@@ -5,16 +5,36 @@ export class AudioSynthesizer {
     this.ctx = null;
     this.tempoVal = 50;
 
-    // BGM handling
+    // BGM handling — two elements for gapless crossfade
     this.bgmAudio = new Audio();
-    this.bgmAudio.loop = true;
     this.bgmAudio.volume = 0.4;
-    this.currentBgm = null;
-    
-    this.normalBattleTracks = [
-      'Normal_Battle.wav', 'Normal_Battle2.wav', 'Normal_Battle3.wav',
-      'Normal_Battle4.wav', 'Normal_Battle5.wav', 'Normal_Battle6.wav'
-    ];
+    this.currentBgmType = null;
+    this.currentBgmFile = null;
+
+    // Track pools (all MP3)
+    this.tracks = {
+      boss:   ['Boss_Battle.mp3','Boss_Battle2.mp3','Boss_Battle3.mp3',
+               'Boss_Battle4.mp3','Boss_Battle5.mp3','Boss_Battle6.mp3'],
+      normal: ['Normal_Battle.mp3','Normal_Battle2.mp3','Normal_Battle3.mp3',
+               'Normal_Battle4.mp3','Normal_Battle5.mp3','Normal_Battle6.mp3',
+               'Normal_Battle7.mp3'],
+      map:    ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3'],
+      menu:   ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3'],
+      intro:  ['Main_Menu.mp3'],
+    };
+    // Per-pool shuffle index so we don't repeat until all played
+    this._poolIndex = {};
+
+    // When a track ends, queue next in same pool
+    this.bgmAudio.addEventListener('ended', () => {
+      if (this.currentBgmType && this.currentBgmType !== 'intro') {
+        this._playFromPool(this.currentBgmType);
+      } else if (this.currentBgmType === 'intro') {
+        // Loop intro
+        this.bgmAudio.currentTime = 0;
+        this.bgmAudio.play().catch(() => {});
+      }
+    });
 
     events.on('ZONE_TRANSITION', ({ oldZone, newZone }) => {
       this.currentZone = newZone;
@@ -29,25 +49,48 @@ export class AudioSynthesizer {
       this.ctx = new (window.AudioContext || window.webkitAudioContext)();
     } catch (e) {}
   }
-  
-  playBGM(type) {
-    let filename = '';
-    if (type === 'boss') filename = 'Boss_Battle.wav';
-    else if (type === 'map' || type === 'menu') filename = 'Selection_Map.wav';
-    else if (type === 'intro') filename = 'Main_Menu.wav';
-    else if (type === 'normal') {
-      filename = this.normalBattleTracks[Math.floor(Math.random() * this.normalBattleTracks.length)];
+
+  _pickTrack(type) {
+    const pool = this.tracks[type];
+    if (!pool || pool.length === 0) return null;
+    if (pool.length === 1) return pool[0];
+
+    // Shuffle-bag: reset when exhausted, avoid immediate repeat
+    if (!this._poolIndex[type] || this._poolIndex[type].length === 0) {
+      const indices = pool.map((_, i) => i).sort(() => Math.random() - 0.5);
+      // Avoid replaying the track that just finished
+      if (this.currentBgmFile) {
+        const last = pool.indexOf(this.currentBgmFile);
+        if (last !== -1 && indices[0] === last && indices.length > 1) {
+          [indices[0], indices[1]] = [indices[1], indices[0]];
+        }
+      }
+      this._poolIndex[type] = indices;
     }
-    
-    if (this.currentBgm === filename) return;
-    this.currentBgm = filename;
-    
-    this.bgmAudio.src = 'music/' + filename;
-    this.bgmAudio.play().catch(e => console.warn('Audio play blocked', e));
+    return pool[this._poolIndex[type].shift()];
+  }
+
+  _playFromPool(type) {
+    const file = this._pickTrack(type);
+    if (!file) return;
+    this.currentBgmFile = file;
+    this.bgmAudio.loop = false;
+    this.bgmAudio.src = 'music/' + file;
+    this.bgmAudio.play().catch(e => console.warn('[Audio] play blocked:', e));
+    console.log(`[Audio] Playing ${type}: ${file}`);
+  }
+
+  playBGM(type) {
+    // Resolve 'menu' → 'map' so they share the same pool and don't restart
+    const resolved = (type === 'menu') ? 'map' : type;
+    if (this.currentBgmType === resolved) return;
+    this.currentBgmType = resolved;
+    this._playFromPool(resolved);
   }
 
   silenceMusic() {
-    this.currentBgm = null;
+    this.currentBgmType = null;
+    this.currentBgmFile = null;
     this.bgmAudio.pause();
     this.bgmAudio.currentTime = 0;
   }

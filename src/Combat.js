@@ -66,6 +66,11 @@ export class CombatManager {
       amount = Math.round(amount * 2);
     }
 
+    // Resonance rune double damage
+    if (this.player && this.player._resonanceActive > 0) {
+      amount = Math.round(amount * 2);
+    }
+
     // ShieldDrone/Conductor immunity check
     if (enemy.type === 'shielddrone') {
       const actualDmg = enemy.takeDamage(amount, this.tempo);
@@ -109,6 +114,17 @@ export class CombatManager {
     const dmgMult = this.tempo.damageMultiplier();
     const cardColor = cardDef.color || '#ffffff';
     const isCritical = this.tempo.value >= 90;
+
+    // Stance modifiers
+    if (player.stance === 'blade_dance' && (cardDef.type === 'melee' || cardDef.type === 'cleave')) {
+      dmgMult *= 1.4;
+    }
+    if (player.stance === 'iron_aegis' && (cardDef.type === 'melee' || cardDef.type === 'cleave')) {
+      // no dmg change for aegis — defense stance doesn't buff offense
+    }
+    if (player.stance === 'tempo_shift') {
+      // Handled in tempo system
+    }
 
     // Blood Pact: costs HP
     if (cardDef.id === 'blood_pact') {
@@ -487,6 +503,129 @@ export class CombatManager {
       return true;
     }
 
+    // ── BEAM ──
+    if (cardDef.type === 'beam') {
+      return this._executeBeam(player, cardDef, inputPos, dmgMult, cardColor);
+    }
+
+    // ── TRAP ──
+    if (cardDef.type === 'trap') {
+      const tx = inputPos.x, ty = inputPos.y;
+      events.emit('SPAWN_TRAP', {
+        x: tx, y: ty,
+        radius: cardDef.trapRadius || 35,
+        damage: Math.round(cardDef.damage * dmgMult),
+        stagger: cardDef.trapStagger || 0,
+        freeze: cardDef.trapFreeze || 0,
+        aoe: cardDef.trapAoE || 0,
+        volatile: cardDef.trapVolatile || false,
+        life: cardDef.trapLife || 6.0,
+        color: cardColor,
+        def: cardDef,
+      });
+      this.particles.spawnRing(tx, ty, (cardDef.trapRadius || 35) + 8, cardColor);
+      this.particles.spawnDamageNumber(tx, ty - 20, 'TRAP');
+      events.emit('PLAY_SOUND', 'hit');
+      return true;
+    }
+
+    // ── ORBIT ──
+    if (cardDef.type === 'orbit') {
+      events.emit('SPAWN_ORBS', {
+        count: cardDef.orbCount || 3,
+        radius: cardDef.orbRadius || 80,
+        damage: Math.round(cardDef.damage * dmgMult),
+        life: cardDef.orbLife || 3.0,
+        speed: cardDef.orbSpeed || 2.5,
+        color: cardColor,
+        freeze: cardDef.orbFreeze || 0,
+        spiral: cardDef.orbSpiral || false,
+      });
+      this.particles.spawnRing(player.x, player.y, cardDef.orbRadius || 80, cardColor);
+      events.emit('PLAY_SOUND', 'hit');
+      return true;
+    }
+
+    // ── CHANNEL ──
+    if (cardDef.type === 'channel') {
+      events.emit('START_CHANNEL', {
+        def: cardDef,
+        dmgMult,
+        playerRef: player,
+      });
+      this.particles.spawnBurst(player.x, player.y, cardColor);
+      events.emit('PLAY_SOUND', 'hit');
+      return true;
+    }
+
+    // ── SIGIL ──
+    if (cardDef.type === 'sigil') {
+      events.emit('SPAWN_SIGIL', {
+        x: player.x, y: player.y,
+        def: cardDef,
+        dmg: Math.round((cardDef.damage || 0) * dmgMult),
+      });
+      this.particles.spawnRing(player.x, player.y, 45, cardColor);
+      this.particles.spawnDamageNumber(player.x, player.y - 25, 'SIGIL');
+      events.emit('PLAY_SOUND', 'hit');
+      return true;
+    }
+
+    // ── ECHO ──
+    if (cardDef.type === 'echo') {
+      events.emit('SPAWN_ECHO', {
+        x: player.x, y: player.y,
+        inputX: inputPos.x, inputY: inputPos.y,
+        def: cardDef,
+        dmg: Math.round(cardDef.damage * dmgMult),
+        delay: cardDef.echoDelay || 0.7,
+      });
+      this.particles.spawnBurst(player.x, player.y, cardColor + '88');
+      events.emit('PLAY_SOUND', 'dodge');
+      return true;
+    }
+
+    // ── GROUND ──
+    if (cardDef.type === 'ground') {
+      const gdx = inputPos.x - player.x, gdy = inputPos.y - player.y;
+      const glen = Math.sqrt(gdx * gdx + gdy * gdy) || 1;
+      events.emit('SPAWN_GROUND_WAVE', {
+        x: player.x, y: player.y,
+        dx: gdx / glen, dy: gdy / glen,
+        def: cardDef,
+        dmg: Math.round(cardDef.damage * dmgMult),
+        length: cardDef.range || 500,
+      });
+      this.particles.spawnBurst(player.x, player.y, cardColor);
+      events.emit('PLAY_SOUND', 'heavyHit');
+      return true;
+    }
+
+    // ── COUNTER ──
+    if (cardDef.type === 'counter') {
+      player.parryWindow = {
+        timer: cardDef.parryWindow || 0.5,
+        maxTimer: cardDef.parryWindow || 0.5,
+        power: cardDef.counterDmg || 35,
+        def: cardDef,
+      };
+      this.particles.spawnRing(player.x, player.y, 55, cardColor);
+      this.particles.spawnDamageNumber(player.x, player.y - 30, 'PARRY!');
+      events.emit('PLAY_SOUND', 'perfect');
+      return true;
+    }
+
+    // ── STANCE ──
+    if (cardDef.type === 'stance') {
+      const newStance = (player.stance === cardDef.stanceId) ? null : cardDef.stanceId;
+      player.stance = newStance;
+      this.particles.spawnRing(player.x, player.y, 60, cardColor);
+      this.particles.spawnDamageNumber(player.x, player.y - 30,
+        newStance ? `[${cardDef.stanceId.replace('_', ' ').toUpperCase()}]` : '[NEUTRAL]');
+      events.emit('PLAY_SOUND', 'itemPickup');
+      return true;
+    }
+
     // ── UTILITY ──
     if (cardDef.type === 'utility') {
       if (cardDef.id === 'second_wind') {
@@ -524,6 +663,60 @@ export class CombatManager {
     }
 
     return false;
+  }
+
+  _executeBeam(player, cardDef, inputPos, dmgMult, cardColor) {
+    const px = player.x, py = player.y;
+    const dx = inputPos.x - px, dy = inputPos.y - py;
+    const len = Math.sqrt(dx * dx + dy * dy) || 1;
+    const nx = dx / len, ny = dy / len;
+    const beamWidth = cardDef.beamWidth || 8;
+
+    // For tempo_blade: damage = current Tempo value
+    const dmg = cardDef.tempoBlade
+      ? Math.round(this.tempo.value)
+      : Math.round(cardDef.damage * dmgMult);
+
+    // Collect enemies along the beam, sorted by distance
+    const hitList = [];
+    for (const e of this.enemies) {
+      if (!e.alive) continue;
+      const ex = e.x - px, ey = e.y - py;
+      const proj = ex * nx + ey * ny;
+      if (proj < 0) continue;
+      const perpDist = Math.abs(ex * ny - ey * nx);
+      if (perpDist < e.r + beamWidth) hitList.push({ e, proj });
+    }
+    hitList.sort((a, b) => a.proj - b.proj);
+
+    let hitAny = false;
+    for (const { e } of hitList) {
+      this.applyDamageToEnemy(e, dmg);
+      if (cardDef.nullRay && e.alive) {
+        e.state = 'chase';
+        e.telegraphTimer = 0;
+        this.particles.spawnDamageNumber(e.x, e.y - 20, 'SILENCE!');
+      }
+      if (cardDef.coldBeam && e.alive) e.stagger(1.5);
+      hitAny = true;
+      if (!cardDef.beamPierce) break;
+    }
+
+    // Visual: beam line flash via particles
+    events.emit('SPAWN_BEAM_FLASH', {
+      x1: px, y1: py,
+      x2: px + nx * 900, y2: py + ny * 900,
+      color: cardColor, width: beamWidth
+    });
+
+    if (hitAny) {
+      events.emit('HIT_STOP', 0.05);
+      events.emit('SCREEN_SHAKE', { duration: 0.1, intensity: 0.15 });
+      events.emit('PLAY_SOUND', 'hit');
+    } else {
+      events.emit('PLAY_SOUND', 'miss');
+    }
+    return true;
   }
 
   // Mirror Strike: hit in all 4 cardinal directions
