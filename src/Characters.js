@@ -14,6 +14,9 @@ export const Characters = {
     startingPool: ['strike', 'lunge', 'berserk', 'heavy_crash', 'double_slash', 'arc_slash'],
     unlockCondition: null,
     unlockConditionText: null,
+    // masteryCards[i] unlocks at mastery level i+1 (runs: 1, 3, 5, 10)
+    masteryCards: ['execute', 'blood_pact', 'glass_cannon', 'berserkers_oath'],
+    masteryCardDesc: ['Blade Lv2: Execute (low-HP instakill)', 'Blade Lv3: Blood Pact (HP for power)', 'Blade Lv4: Glass Cannon (all-in burst)', 'Blade Lv5: Berserker\'s Oath (rage stacks)'],
     passives: {
       crashResetValue: 70,
       tempoGainMult: 1.5,
@@ -33,6 +36,8 @@ export const Characters = {
     startingPool: ['chill_blade', 'frost_nova', 'shield_bash', 'cold_wave', 'strike', 'tempo_surge'],
     unlockCondition: 'heal_10_hp',
     unlockConditionText: 'Heal 10+ HP in a single run',
+    masteryCards: ['iron_wall', 'second_wind', 'perfect_guard', 'last_stand'],
+    masteryCardDesc: ['Frost Lv2: Iron Wall (block incoming)', 'Frost Lv3: Second Wind (emergency heal)', 'Frost Lv4: Perfect Guard (parry mastery)', 'Frost Lv5: Last Stand (clutch burst)'],
     passives: {
       damageTempoBuild: 15,
       coldDamageReduction: 0.3,
@@ -54,6 +59,8 @@ export const Characters = {
     startingPool: ['dash_strike', 'void_lance', 'vampire_bite', 'phantom_step', 'shadow_mark', 'quick_shot'],
     unlockCondition: 'reach_floor_2',
     unlockConditionText: 'Reach Act 2 in any run',
+    masteryCards: ['smoke_screen', 'shadow_mark', 'death_blow', 'marked_for_death'],
+    masteryCardDesc: ['Shadow Lv2: Smoke Screen (vanish)', 'Shadow Lv3: Shadow Mark (amplify damage)', 'Shadow Lv4: Death Blow (execute assassin)', 'Shadow Lv5: Marked for Death (full debuff)'],
     passives: {
       perfectDodgeWindowMult: 2.0,
       perfectDodgeTempoGain: 20,
@@ -76,6 +83,8 @@ export const Characters = {
     startingPool: ['chill_blade', 'strike', 'counter_slash', 'arc_slash', 'frost_nova', 'berserk'],
     unlockCondition: 'reach_floor_3',
     unlockConditionText: 'Reach Act 3 in any run',
+    masteryCards: ['resonant_pulse', 'resonance_rune', 'tempo_shift_stance', 'crash_rune'],
+    masteryCardDesc: ['Echo Lv2: Resonant Pulse (zone burst)', 'Echo Lv3: Resonance Rune (tempo anchor)', 'Echo Lv4: Tempo Shift Stance (zone control)', 'Echo Lv5: Crash Rune (crash detonation)'],
     passives: {
       resonancePulse: true,
       dampedDecay: 0.5,
@@ -98,6 +107,8 @@ export const Characters = {
     startingPool: ['blood_pact', 'gut_rend', 'dash_strike', 'berserk', 'vampire_bite', 'counter_slash'],
     unlockCondition: 'win_any',
     unlockConditionText: 'Win a run on any character',
+    masteryCards: ['soul_drain', 'deaths_bargain', 'leech_field', 'reaper'],
+    masteryCardDesc: ['Wraith Lv2: Soul Drain (steal life)', 'Wraith Lv3: Death\'s Bargain (HP for power)', 'Wraith Lv4: Leech Field (AoE lifesteal)', 'Wraith Lv5: Reaper (instakill zone)'],
     passives: {
       deathsEdge: true,
       undying: true,
@@ -120,6 +131,8 @@ export const Characters = {
     startingPool: ['heavy_crash', 'shield_bash', 'arc_slash', 'strike', 'spin_attack', 'whirlwind'],
     unlockCondition: 'win_brutal',
     unlockConditionText: 'Win a run on Hard difficulty',
+    masteryCards: ['earthshaker', 'whirlwind', 'mirror_strike', 'last_stand'],
+    masteryCardDesc: ['Vanguard Lv2: Earthshaker (ground slam)', 'Vanguard Lv3: Whirlwind (spin AoE)', 'Vanguard Lv4: Mirror Strike (reflected damage)', 'Vanguard Lv5: Last Stand (tank limit break)'],
     passives: {
       ironGuard: true,
       maxGuardStacks: 4,

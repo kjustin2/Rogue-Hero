@@ -149,9 +149,9 @@ export class Enemy extends Entity {
     }
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 9px monospace';
+    ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(label, this.x, this.y - this.r - 18);
+    ctx.fillText(label, this.x, this.y - this.r - 20);
     this.drawHealthBar(ctx, color);
   }
 
@@ -934,9 +934,9 @@ export class ShieldDrone extends Enemy {
     }
 
     ctx.fillStyle = shielded ? '#cc99ff' : '#9966cc';
-    ctx.font = 'bold 9px monospace';
+    ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(shielded ? 'DRONE 🔒' : 'DRONE', this.x, this.y - this.r - 18);
+    ctx.fillText(shielded ? 'DRONE 🔒' : 'DRONE', this.x, this.y - this.r - 20);
     this.drawHealthBar(ctx, shielded ? '#8844ff' : '#aa66ff');
   }
 }
@@ -1630,7 +1630,7 @@ export class BossNecromancer extends Enemy {
       ctx.setLineDash([]);
       ctx.restore();
       ctx.fillStyle = '#44ff44';
-      ctx.font = 'bold 9px monospace';
+      ctx.font = 'bold 12px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('SHIELD — USE CRASH!', this.x, this.y - this.r - 28);
     }
@@ -2465,6 +2465,97 @@ export class RicochetDrone extends Enemy {
 }
 
 // ── TIMEKEEPER ────────────────────────────────────────────────────
+// ── DISRUPTOR — silence enemy: prevents player from using cards briefly ──────
+export class Disruptor extends Enemy {
+  constructor(x, y) {
+    super(x, y, 16, 40, 'disruptor');
+    this.telegraphDuration = 1.8;
+    this._silenceCooldown = 2.0; // starts ready quickly
+    this._silenceRange = 190;
+    this._pulsePct = 0; // animation
+  }
+
+  updateLogic(dt, player, tempo, room, enemies, projectiles) {
+    if (!this.alive) return;
+    this.updateTimers(dt);
+    if (this.updateSpawn(dt)) return;
+    if (this.staggerTimer > 0) { this.staggerTimer -= dt; return; }
+
+    const dx = player.x - this.x, dy = player.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const speed = 85 * this.spdMult();
+
+    // Maintain medium engagement distance
+    if (this.state !== 'telegraph') {
+      if (dist > 220) {
+        const nx = dx / dist, ny = dy / dist;
+        const pos = room.clamp(this.x + nx * speed * dt, this.y + ny * speed * dt, this.r);
+        this.x = pos.x; this.y = pos.y;
+      } else if (dist < 130) {
+        // Back away
+        const nx = dx / dist, ny = dy / dist;
+        const pos = room.clamp(this.x - nx * speed * dt, this.y - ny * speed * dt, this.r);
+        this.x = pos.x; this.y = pos.y;
+      }
+    }
+
+    // Silence pulse
+    this._silenceCooldown -= dt;
+    if (this._silenceCooldown <= 0 && dist < this._silenceRange + this.r) {
+      if (this.state !== 'telegraph') {
+        this.state = 'telegraph';
+        this.telegraphTimer = this.telegraphDuration;
+        this._pulsePct = 0;
+      }
+    }
+
+    if (this.state === 'telegraph') {
+      this.telegraphTimer -= dt;
+      this._pulsePct = 1 - (this.telegraphTimer / this.telegraphDuration);
+      if (this.telegraphTimer <= 0) {
+        this.state = 'chase';
+        this._silenceCooldown = 5.0;
+        if (dist < this._silenceRange + this.r) {
+          events.emit('PLAYER_SILENCED', { duration: 1.5 });
+        }
+      }
+    }
+  }
+
+  drawTelegraph(ctx, now) {
+    if (this.state !== 'telegraph') return;
+    const pct = this._pulsePct;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this._silenceRange * pct, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(200,50,255,${0.25 + pct * 0.45})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([5, 5]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Interference rings
+    for (let r = 0.3; r < 1; r += 0.35) {
+      if (pct < r) continue;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this._silenceRange * r, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(200,50,255,${0.15})`;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  }
+
+  draw(ctx, now) {
+    if (!this.alive) return;
+    this.drawBody(ctx, 'DISRUPTOR', '#2a0040', now);
+    // Pulse aura indicator
+    const pulse = (Math.sin(now / 400) + 1) * 0.5;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r + 6 + pulse * 4, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(180,40,255,${0.3 + pulse * 0.2})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+}
+
 export class Timekeeper extends Enemy {
   constructor(x, y) {
     super(x, y, 15, 80, 'timekeeper');

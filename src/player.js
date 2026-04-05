@@ -97,6 +97,8 @@ export class Player extends Entity {
           this.dodging = true;
           this.dodgeTimer = this.dodgeDuration;
           this.dodgeCooldown = (this.classPassives && this.classPassives.dodgeCooldown) || 0.3;
+          // Dodging cancels silence
+          if (this.silenced) { this.silenced = false; this.silenceTimer = 0; }
           // Perfect dodge window
           const basePerfWindow = 0.12;
           const windowMult = (this.classPassives && this.classPassives.perfectDodgeWindowMult) || 1.0;

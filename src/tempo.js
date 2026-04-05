@@ -170,6 +170,7 @@ export class TempoSystem {
   _doCrash(hitStopDur, shakeDur, shakeIntens) {
     this.isCrashed = true;
     this.value = this.crashResetValue;
+    this.targetValue = this.crashResetValue; // Fix: reset target so it doesn't ramp back to 100
     events.emit('HIT_STOP', hitStopDur);
     events.emit('SCREEN_SHAKE', { duration: shakeDur, intensity: shakeIntens });
     events.emit('PLAY_SOUND', 'crash');

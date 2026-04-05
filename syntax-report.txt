@@ -1,5 +1,5 @@
-Syntax check — 2026-04-05T16:18:01.797Z
-Checked 23 files in src/
+Syntax check — 2026-04-05T18:56:39.195Z
+Checked 21 files in src/
 ============================================================
   OK   src/Characters.js
   OK   src/Combat.js
@@ -17,12 +17,10 @@ Checked 23 files in src/
   OK   src/RunManager.js
   OK   src/audio.js
   OK   src/effects.js
-  OK   src/enemies.js
   OK   src/main.js
   OK   src/player.js
   OK   src/room.js
-  OK   src/state.js
   OK   src/tempo.js
   OK   src/ui.js
 ============================================================
-Result: 23 OK, 0 error(s)
+Result: 21 OK, 0 error(s)

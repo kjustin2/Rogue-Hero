@@ -3,7 +3,7 @@ import { EventBus, events } from './EventBus.js';
 import { InputManager } from './Input.js';
 import { Renderer } from './Renderer.js';
 import { Player } from './player.js';
-import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, Phantom, Blocker, Bomber, Marksman, BossBrawler, BossConductor, BossEcho, BossNecromancer, BossApex, Shrieker, Juggernaut, Stalker, Splitter, Split, Corruptor, BerserkerEnemy, RicochetDrone, Timekeeper } from './Enemy.js';
+import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, Phantom, Blocker, Bomber, Marksman, BossBrawler, BossConductor, BossEcho, BossNecromancer, BossApex, Shrieker, Juggernaut, Stalker, Splitter, Split, Corruptor, BerserkerEnemy, RicochetDrone, Timekeeper, Disruptor } from './Enemy.js';
 import { TempoSystem } from './tempo.js';
 import { CombatManager } from './Combat.js';
 import { ParticleSystem } from './Particles.js';
@@ -49,6 +49,8 @@ const runManager = new RunManager();
 const meta = new MetaProgress();
 const itemManager = new ItemManager();
 console.log('[Init] All systems created. Cards:', Object.keys(CardDefinitions).length, 'Items:', Object.keys(ItemDefinitions).length);
+// Restore saved volume
+audio.setMasterVolume(meta.getMasterVolume());
 
 let player = new Player(400, 360);
 let enemies = [];
@@ -89,10 +91,22 @@ let lastKillSlowTimer = 0;
 let pauseMenuBoxes = [];
 let prevStateBeforePause = null;
 let pauseQuitConfirm = false;
+let pauseShowControls = false;
+
+// Intro screen state
+let introResetConfirm = false;
+let introBoxes = [];
 
 // Discard state
 let discardPendingCardId = null;
 let discardReturnState = 'map';
+
+// Zone transition first-time tooltip
+let seenZones = new Set();
+let zoneTooltip = null; // { text, color, timer }
+
+// Rest node state
+let restChoiceBoxes = [];
 
 // World effect arrays
 let traps = [];
@@ -123,10 +137,26 @@ function resetRunStats() {
 }
 
 // ── Event Handlers ──────────────────────────────────────────────
-events.on('PLAYER_SHOT_HIT', ({ enemy, damage, freeze }) => {
+events.on('PLAYER_SHOT_HIT', ({ enemy, damage, freeze, clusterAoE, executeLowShot, hitX, hitY }) => {
   if (!enemy.alive) return;
-  combat.applyDamageToEnemy(enemy, damage);
+  let finalDmg = damage;
+  if (executeLowShot && (enemy.hp / (enemy.maxHp || enemy.hp)) < executeLowShot) {
+    finalDmg = enemy.hp;
+    particles.spawnDamageNumber(enemy.x, enemy.y - 30, 'EXECUTE!');
+  }
+  combat.applyDamageToEnemy(enemy, finalDmg);
   if (freeze && enemy.alive) enemy.stagger(1.2);
+  if (clusterAoE > 0) {
+    const cx = hitX ?? enemy.x, cy = hitY ?? enemy.y;
+    particles.spawnRing(cx, cy, clusterAoE, '#ffbb44');
+    for (const e of enemies) {
+      if (!e.alive || e === enemy) continue;
+      const dx = e.x - cx, dy = e.y - cy;
+      if (dx * dx + dy * dy < clusterAoE * clusterAoE) {
+        combat.applyDamageToEnemy(e, Math.round(damage * 0.6));
+      }
+    }
+  }
 });
 
 events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
@@ -193,6 +223,7 @@ events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
     }
     console.log(`[Event] Player DIED Floor ${runManager.floor}, ${roomsCleared} rooms`);
     runStats.floor = runManager.floor;
+    runStats.finalDeck = [...deckManager.collection];
     checkRunUnlocks(false);
     gameState = 'stats';
     runStats.won = false;
@@ -219,9 +250,19 @@ events.on('NEAR_MISS_PROJECTILE', ({ x, y }) => {
   }
 });
 
+const ZONE_TIPS = {
+  COLD:     { text: 'COLD ZONE — 0.7× damage. Ice cards deal 3× here!', color: '#4a9eff' },
+  FLOWING:  { text: 'FLOWING ZONE — balanced 1.0× damage.', color: '#44dd88' },
+  HOT:      { text: 'HOT ZONE — 1.3× damage, 1.2× speed. Dash attacks deal damage!', color: '#ff8833' },
+  CRITICAL: { text: 'CRITICAL ZONE — 1.8× damage, attacks pierce. Watch your tempo!', color: '#ff3333' },
+};
 events.on('ZONE_TRANSITION', ({ oldZone, newZone }) => {
   particles.spawnZonePulse(tempo.stateColor());
   particles.spawnStateLabel(newZone, tempo.stateColor());
+  if (!seenZones.has(newZone) && ZONE_TIPS[newZone]) {
+    seenZones.add(newZone);
+    zoneTooltip = { text: ZONE_TIPS[newZone].text, color: ZONE_TIPS[newZone].color, timer: 3.5 };
+  }
 });
 
 events.on('LAST_KILL', ({ x, y }) => {
@@ -242,6 +283,20 @@ events.on('PLAYER_TRAIL', ({ x, y, color }) => {
 
 events.on('DRAIN', () => {
   particles.spawnDamageNumber(player.x, player.y - 20, '-20 TEMPO');
+});
+
+events.on('RELIC_ACTIVATED', ({ name, text }) => {
+  const label = text ? `${name}: ${text}` : name;
+  particles.spawnDamageNumber(player.x, player.y - 55, label);
+});
+
+events.on('PLAYER_SILENCED', ({ duration }) => {
+  player.silenced = true;
+  player.silenceTimer = duration;
+  particles.spawnDamageNumber(player.x, player.y - 40, 'SILENCED!');
+  particles.spawnBurst(player.x, player.y, '#cc44ff');
+  events.emit('SCREEN_SHAKE', { duration: 0.2, intensity: 0.3 });
+  events.emit('HIT_STOP', 0.1);
 });
 
 events.on('OVERLOADED', ({ x, y }) => {
@@ -390,6 +445,8 @@ function startNewRun() {
   slowMoTimer = 0;
   slowMoScale = 1.0;
   lastKillSlowTimer = 0;
+  seenZones = new Set();
+  zoneTooltip = null;
   ui.prepPendingCard = null;
   ui.showInventory = false;
 
@@ -465,10 +522,11 @@ function spawnEnemies(node) {
       else if (f >= 3 && roll < 0.34) enemies.push(new Mirror(rndX(), rndY()));
       else if (f >= 2 && roll < 0.38) enemies.push(new Stalker(rndX(), rndY()));
       else if (f >= 2 && roll < 0.42) enemies.push(new RicochetDrone(rndX(), rndY()));
-      else if (f >= 2 && roll < 0.46) enemies.push(new Teleporter(rndX(), rndY()));
-      else if (f >= 1 && roll < 0.50) enemies.push(new Shrieker(rndX(), rndY()));
-      else if (f >= 1 && roll < 0.54) enemies.push(new Splitter(rndX(), rndY()));
-      else if (roll < 0.58) enemies.push(new TempoVampire(rndX(), rndY()));
+      else if (f >= 2 && roll < 0.46) enemies.push(new Disruptor(rndX(), rndY()));
+      else if (f >= 2 && roll < 0.50) enemies.push(new Teleporter(rndX(), rndY()));
+      else if (f >= 1 && roll < 0.54) enemies.push(new Shrieker(rndX(), rndY()));
+      else if (f >= 1 && roll < 0.58) enemies.push(new Splitter(rndX(), rndY()));
+      else if (roll < 0.63) enemies.push(new TempoVampire(rndX(), rndY()));
       else if (roll < 0.63) enemies.push(new ShieldDrone(rndX(), rndY()));
       else if (roll < 0.68) enemies.push(new Healer(rndX(), rndY()));
       else if (roll < 0.74) enemies.push(new Turret(rndX(), rndY()));
@@ -513,6 +571,8 @@ function spawnEnemies(node) {
   player._undyingUsed = false;
   player.guardStacks = 0;
   player._guardDecayTimer = 0;
+  player.silenced = false;
+  player.silenceTimer = 0;
   traps.length = 0;
   orbs.length = 0;
   echoes.length = 0;
@@ -535,7 +595,12 @@ function getAvailableCards() {
   return Object.keys(CardDefinitions).filter(id => {
     if (owned.includes(id)) return false;
     const def = CardDefinitions[id];
-    if (def.bonusCard && !meta.isBonusCardUnlocked(id)) return false;
+    // Bonus cards require bonus card unlock OR mastery unlock
+    if (def.bonusCard) {
+      if (meta.isBonusCardUnlocked(id)) return true;
+      if (meta.isMasteryCardUnlocked(id)) return true;
+      return false;
+    }
     return true;
   });
 }
@@ -585,6 +650,19 @@ function checkRunUnlocks(won) {
   meta.recordRun(won, runManager.floor);
   meta.recordCharRun(selectedCharId, won, runManager.floor);
   newUnlocks = [];
+
+  // Character mastery unlock
+  if (selectedCharId) {
+    const newMasteryLevel = meta.incrementMastery(selectedCharId);
+    if (newMasteryLevel > 0) {
+      const charDef = Characters[selectedCharId];
+      const cardId = charDef && charDef.masteryCards && charDef.masteryCards[newMasteryLevel - 1];
+      if (cardId && meta.unlockMasteryCard(cardId)) {
+        const cardName = CardDefinitions[cardId]?.name || cardId;
+        newUnlocks.push(`${charDef.name} Mastery Lv${newMasteryLevel}: Unlocked "${cardName}"`);
+      }
+    }
+  }
   if (runManager.floor >= 2 && meta.unlockCharacter('shadow')) {
     newUnlocks.push('Unlocked character: SHADOW');
   }
@@ -632,6 +710,7 @@ function handleCombatClear() {
       console.log('[Run] VICTORY! All floors cleared.');
       runStats.won = true;
       runStats.floor = runManager.floor;
+      runStats.finalDeck = [...deckManager.collection];
       checkRunUnlocks(true);
       gameState = 'stats';
       currentCombatNode = null;
@@ -810,16 +889,18 @@ function update(logicDt, realDt) {
       audio.playBGM('menu');
       gameState = 'charSelect';
     }
-    // Only advance when clicking the CONTINUE button (not anywhere)
     if (input.consumeClick()) {
-      const btnW = 260, btnH = 50;
-      const btnX = (canvas.width - btnW) / 2;
-      const btnY = 618;
       const mx = input.mouse.x, my = input.mouse.y;
-      if (mx >= btnX && mx <= btnX + btnW && my >= btnY && my <= btnY + btnH) {
-        audio.init();
-        audio.playBGM('menu');
-        gameState = 'charSelect';
+      for (const b of introBoxes) {
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          if (b.action === 'continue') { audio.init(); audio.playBGM('menu'); gameState = 'charSelect'; }
+          else if (b.action === 'vol_down') { const v = Math.max(0, audio.getMasterVolume() - 0.1); audio.setMasterVolume(v); meta.setMasterVolume(v); }
+          else if (b.action === 'vol_up')   { const v = Math.min(1, audio.getMasterVolume() + 0.1); audio.setMasterVolume(v); meta.setMasterVolume(v); }
+          else if (b.action === 'reset_confirm') { introResetConfirm = true; }
+          else if (b.action === 'reset_do') { meta.resetAll(); introResetConfirm = false; }
+          else if (b.action === 'reset_cancel') { introResetConfirm = false; }
+          break;
+        }
       }
     }
     input.clearFrame();
@@ -861,8 +942,8 @@ function update(logicDt, realDt) {
       if (node) {
         console.log(`[Map] Node "${node.id}" type="${node.type}"`);
         if (node.type === 'rest') {
-          player.heal(3);
-          console.log(`[Map] Rested. HP: ${player.hp}/${player.maxHp}`);
+          restChoiceBoxes = [];
+          gameState = 'rest';
         } else if (node.type === 'event') {
           gameState = 'event';
         } else if (node.type === 'shop') {
@@ -904,13 +985,42 @@ function update(logicDt, realDt) {
       const mx = input.mouse.x, my = input.mouse.y;
       for (const b of pauseMenuBoxes) {
         if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-          if (b.action === 'resume') { pauseQuitConfirm = false; gameState = prevStateBeforePause || 'playing'; }
-          else if (b.action === 'restart') { pauseQuitConfirm = false; gameState = 'charSelect'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
+          if (b.action === 'resume') { pauseQuitConfirm = false; pauseShowControls = false; gameState = prevStateBeforePause || 'playing'; }
+          else if (b.action === 'controls') { pauseShowControls = !pauseShowControls; pauseQuitConfirm = false; }
+          else if (b.action === 'restart') { pauseQuitConfirm = false; pauseShowControls = false; gameState = 'charSelect'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
           else if (b.action === 'quit') {
             if (pauseQuitConfirm) { pauseQuitConfirm = false; gameState = 'intro'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
             else { pauseQuitConfirm = true; }
           }
           else if (b.action === 'quit_cancel') { pauseQuitConfirm = false; }
+          else if (b.action === 'vol_down') { const v = Math.max(0, audio.getMasterVolume() - 0.1); audio.setMasterVolume(v); meta.setMasterVolume(v); }
+          else if (b.action === 'vol_up')   { const v = Math.min(1, audio.getMasterVolume() + 0.1); audio.setMasterVolume(v); meta.setMasterVolume(v); }
+          break;
+        }
+      }
+    }
+    input.clearFrame();
+    return;
+  }
+
+  // ── REST ──
+  if (gameState === 'rest') {
+    if (input.consumeKey('escape')) { gameState = 'map'; input.clearFrame(); return; }
+    if (input.consumeClick()) {
+      const mx = input.mouse.x, my = input.mouse.y;
+      for (const b of restChoiceBoxes) {
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          if (b.action === 'heal') {
+            player.heal(3);
+            console.log(`[Rest] Healed 3 HP: ${player.hp}/${player.maxHp}`);
+            gameState = 'map';
+          } else if (b.action === 'burn') {
+            if (deckManager.collection.length > 1) {
+              discardPendingCardId = '__BURN__';
+              discardReturnState = 'map';
+              gameState = 'discard';
+            }
+          }
           break;
         }
       }
@@ -961,17 +1071,24 @@ function update(logicDt, realDt) {
       const discardId = ui.handleDiscardClick(input.mouse.x, input.mouse.y);
       if (discardId && discardPendingCardId) {
         deckManager.removeCard(discardId);
-        deckManager.addCard(discardPendingCardId);
         events.emit('PLAY_SOUND', 'itemPickup');
-        console.log(`[Deck] Discarded "${discardId}", added "${discardPendingCardId}"`);
-        if (window._discardCallback) {
-          const cb = window._discardCallback;
-          window._discardCallback = null;
-          discardPendingCardId = null;
-          cb();
-        } else {
+        if (discardPendingCardId === '__BURN__') {
+          // Rest node burn: just remove, don't add a replacement
+          console.log(`[Rest] Burned card "${discardId}"`);
           discardPendingCardId = null;
           gameState = 'map';
+        } else {
+          deckManager.addCard(discardPendingCardId);
+          console.log(`[Deck] Discarded "${discardId}", added "${discardPendingCardId}"`);
+          if (window._discardCallback) {
+            const cb = window._discardCallback;
+            window._discardCallback = null;
+            discardPendingCardId = null;
+            cb();
+          } else {
+            discardPendingCardId = null;
+            gameState = 'map';
+          }
         }
       }
     }
@@ -1045,6 +1162,7 @@ function update(logicDt, realDt) {
   if (input.consumeKey('escape')) {
     prevStateBeforePause = 'playing';
     pauseQuitConfirm = false;
+    pauseShowControls = false;
     gameState = 'paused';
     input.clearFrame();
     return;
@@ -1067,17 +1185,28 @@ function update(logicDt, realDt) {
     }
   }
 
+  // Silence timer
+  if (player.silenced) {
+    player.silenceTimer = Math.max(0, (player.silenceTimer || 0) - logicDt);
+    if (player.silenceTimer <= 0) player.silenced = false;
+  }
+
   // Left-click: use the currently selected card
   if (input.consumeClick()) {
-    const cardId = deckManager.hand[selectedCardSlot];
-    if (cardId) {
-      const def = deckManager.getCardDef(cardId);
-      if (player.budget >= def.cost) {
-        combat.executeCard(player, def, input.mouse);
-        runStats.cardsPlayed++;
-        if (def.type !== 'echo') _lastCardPlayed = def;
+    if (player.silenced) {
+      particles.spawnDamageNumber(player.x, player.y - 30, 'SILENCED!');
+      events.emit('PLAY_SOUND', 'miss');
+    } else {
+      const cardId = deckManager.hand[selectedCardSlot];
+      if (cardId) {
+        const def = deckManager.getCardDef(cardId);
+        if (player.budget >= def.cost) {
+          combat.executeCard(player, def, input.mouse);
+          runStats.cardsPlayed++;
+          if (def.type !== 'echo') _lastCardPlayed = def;
+        }
+        else events.emit('PLAY_SOUND', 'miss');
       }
-      else events.emit('PLAY_SOUND', 'miss');
     }
   }
 
@@ -1412,6 +1541,11 @@ function update(logicDt, realDt) {
 
   particles.update(logicDt);
   renderer.updateShake(realDt);
+  // Tick zone tooltip
+  if (zoneTooltip && zoneTooltip.timer > 0) {
+    zoneTooltip.timer -= logicDt;
+    if (zoneTooltip.timer <= 0) zoneTooltip = null;
+  }
   input.clearFrame();
 }
 
@@ -1519,19 +1653,23 @@ function _drawWorldObjects(ctx, now) {
     ctx.stroke();
     ctx.globalAlpha = 1;
   }
-  // Beam flashes
+  // Beam flashes (draw wide+faded + narrow+bright to fake glow without shadowBlur)
   for (const b of beamFlashes) {
     const t3 = 1 - b.life / b.maxLife;
-    ctx.globalAlpha = (1 - t3) * 0.85;
+    const baseAlpha = (1 - t3) * 0.85;
+    const w = (b.width || 8) * (1 - t3 * 0.5);
     ctx.beginPath();
     ctx.moveTo(b.x1, b.y1);
     ctx.lineTo(b.x2, b.y2);
     ctx.strokeStyle = b.color || '#aaddff';
-    ctx.lineWidth = (b.width || 8) * (1 - t3 * 0.5);
-    ctx.shadowColor = b.color || '#aaddff';
-    ctx.shadowBlur = 15;
+    // Outer glow pass
+    ctx.globalAlpha = baseAlpha * 0.25;
+    ctx.lineWidth = w * 3;
     ctx.stroke();
-    ctx.shadowBlur = 0;
+    // Inner bright pass
+    ctx.globalAlpha = baseAlpha;
+    ctx.lineWidth = w;
+    ctx.stroke();
     ctx.globalAlpha = 1;
   }
   ctx.restore();
@@ -1544,14 +1682,17 @@ function _drawOrbs(ctx) {
     const ox = player.x + Math.cos(o.angle) * o.radius;
     const oy = player.y + Math.sin(o.angle) * o.radius;
     const alpha = Math.min(1, o.life * 2);
+    ctx.globalAlpha = alpha * 0.3;
+    // Glow ring (replace shadowBlur)
+    ctx.beginPath();
+    ctx.arc(ox, oy, 14, 0, Math.PI * 2);
+    ctx.fillStyle = o.color || '#ff8844';
+    ctx.fill();
     ctx.globalAlpha = alpha;
     ctx.beginPath();
     ctx.arc(ox, oy, 7, 0, Math.PI * 2);
     ctx.fillStyle = o.color || '#ff8844';
-    ctx.shadowColor = o.color || '#ff8844';
-    ctx.shadowBlur = 10;
     ctx.fill();
-    ctx.shadowBlur = 0;
     // Trail line to player
     ctx.beginPath();
     ctx.moveTo(player.x, player.y);
@@ -1592,52 +1733,60 @@ function render() {
     ctx.fillStyle = 'rgba(68,170,255,0.12)';
     ctx.fillRect(canvas.width / 2 - 240, 122, 480, 2);
     ctx.fillStyle = '#44aaff';
-    ctx.font = '15px monospace';
+    ctx.font = 'bold 17px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('A Tempo-Driven Roguelike Deck Builder', canvas.width / 2, 148);
 
-    const bx = 180, by = 172, bw = canvas.width - 360, bh = 420;
+    const bx = Math.max(40, Math.floor(canvas.width * 0.1));
+    const bw = canvas.width - bx * 2;
+    const by = 172;
+    const lineH = 26;
+    const lines = [
+      '◆ WASD / Arrow Keys to move',
+      '◆ SPACE to dodge toward mouse cursor (no AP cost)',
+      '◆ LEFT CLICK to attack with selected card',
+      '◆ RIGHT CLICK or 1–4 keys to switch card',
+      '',
+      '◆ THE TEMPO BAR controls your power:',
+      '    COLD  (<30)    = 0.7× damage  —  fill to 0 → ICE CRASH: massive freeze AoE!',
+      '    FLOWING (30–70) = 1.0× damage, balanced play',
+      '    HOT   (70–90)  = 1.3× damage, 1.2× speed, dash-attacks deal damage!',
+      '    CRITICAL (90+) = 1.8× damage, attacks PIERCE  —  fills to 100 → auto CRASH!',
+      '',
+      '◆ Perfect Dodge: dodge just as an attack lands → slow-mo + bonus tempo',
+      '◆ After each room: pick a new card for your deck',
+      `◆ Clear ${FLOORS_TO_WIN} acts (each ending in a unique boss) to WIN`,
+      '◆ Press ESC during combat to open the pause menu',
+    ];
+    const bh = 50 + lines.length * lineH + 10;
     ctx.fillStyle = 'rgba(12,12,20,0.95)';
     ctx.beginPath();
     ctx.roundRect(bx, by, bw, bh, 12);
     ctx.fill();
-    ctx.strokeStyle = '#1e2044';
+    ctx.strokeStyle = '#2a2a55';
     ctx.lineWidth = 2;
     ctx.stroke();
 
     ctx.fillStyle = '#ffdd44';
-    ctx.font = 'bold 18px monospace';
+    ctx.font = 'bold 20px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('HOW TO PLAY', canvas.width / 2, by + 32);
+    ctx.fillText('HOW TO PLAY', canvas.width / 2, by + 34);
 
-    ctx.fillStyle = '#ccc';
-    ctx.font = '13px monospace';
+    ctx.fillStyle = '#ddddee';
+    ctx.font = '15px monospace';
     ctx.textAlign = 'left';
-    const lines = [
-      '◆ WASD/Arrows to move, SPACE to dodge towards mouse (no AP cost)',
-      '◆ LEFT CLICK to attack with your selected card',
-      '◆ RIGHT CLICK to cycle between equipped cards (or press 1-4)',
-      '',
-      '◆ THE TEMPO BAR (top center) controls your power:',
-      '    COLD (<30)     = 0.7x damage — overfill to 0 → ICE CRASH: massive freeze AoE!',
-      '    FLOWING (30-70) = 1.0x damage, balanced play',
-      '    HOT (70-90)     = 1.3x damage, 1.2x speed, dash-attack deals damage!',
-      '    CRITICAL (90+)  = 1.8x damage, attacks PIERCE — overfill to 100 → auto CRASH!',
-      '',
-      '◆ Perfect Dodge: dodge just as an attack lands → slow-mo + tempo boost',
-      '◆ ESC key: Open pause menu during combat',
-      `◆ Clear ${FLOORS_TO_WIN} acts (each ending in a unique boss) to WIN`,
-      `◆ On the map screen, press [I] to view your cards & relics`,
-      '◆ Collect relics, upgrade cards, unlock new characters & difficulties',
-    ];
     for (let i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], bx + 25, by + 65 + i * 22);
+      if (lines[i] === '') continue;
+      // Indent zone lines slightly more
+      const indent = lines[i].startsWith('    ') ? bx + 45 : bx + 22;
+      ctx.fillStyle = lines[i].startsWith('    ') ? '#aabbcc' : '#ddddee';
+      ctx.fillText(lines[i].trim(), indent, by + 62 + i * lineH);
     }
 
     // CONTINUE button
-    const btnW = 260, btnH = 50;
+    const btnW = 300, btnH = 54;
     const btnX = (canvas.width - btnW) / 2;
-    const btnY = by + bh + 10;
+    const btnY = by + bh + 14;
     ctx.fillStyle = '#225533';
     ctx.beginPath();
     ctx.roundRect(btnX, btnY, btnW, btnH, 10);
@@ -1646,9 +1795,87 @@ function render() {
     ctx.lineWidth = 2;
     ctx.stroke();
     ctx.fillStyle = '#33dd66';
-    ctx.font = 'bold 20px monospace';
+    ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CONTINUE', canvas.width / 2, btnY + 33);
+    ctx.fillText('CONTINUE  ▶', canvas.width / 2, btnY + 35);
+
+    // Volume control row
+    const volY = btnY + btnH + 16;
+    const vol = audio.getMasterVolume();
+    const pips = 10;
+    ctx.fillStyle = '#556';
+    ctx.font = '13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('VOLUME', canvas.width / 2, volY);
+    const pipW = 22, pipH = 14, pipGap = 4;
+    const pipTotalW = pips * (pipW + pipGap) - pipGap;
+    const pipStartX = canvas.width / 2 - pipTotalW / 2;
+    for (let p = 0; p < pips; p++) {
+      const filled = p < Math.round(vol * pips);
+      ctx.fillStyle = filled ? '#44cc88' : '#223344';
+      ctx.fillRect(pipStartX + p * (pipW + pipGap), volY + 6, pipW, pipH);
+    }
+    const vBtnW = 30, vBtnH = 26;
+    const vDownX = pipStartX - vBtnW - 6, vUpX = pipStartX + pipTotalW + 6;
+    ctx.fillStyle = '#334455';
+    ctx.fillRect(vDownX, volY + 4, vBtnW, vBtnH);
+    ctx.fillStyle = '#aabb88';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('−', vDownX + vBtnW / 2, volY + 21);
+    ctx.fillStyle = '#334455';
+    ctx.fillRect(vUpX, volY + 4, vBtnW, vBtnH);
+    ctx.fillStyle = '#aabb88';
+    ctx.fillText('+', vUpX + vBtnW / 2, volY + 21);
+
+    // Reset progress row
+    const rstY = volY + 42;
+    if (!introResetConfirm) {
+      const rstW = 240, rstH = 38;
+      const rstX = canvas.width / 2 - rstW / 2;
+      ctx.fillStyle = '#1e0a0a';
+      ctx.beginPath();
+      ctx.roundRect(rstX, rstY, rstW, rstH, 6);
+      ctx.fill();
+      ctx.strokeStyle = '#cc3333';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#ff6655';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠  Reset All Progress', canvas.width / 2, rstY + 24);
+      introBoxes = [
+        { x: btnX, y: btnY, w: btnW, h: btnH, action: 'continue' },
+        { x: vDownX, y: volY + 4, w: vBtnW, h: vBtnH, action: 'vol_down' },
+        { x: vUpX, y: volY + 4, w: vBtnW, h: vBtnH, action: 'vol_up' },
+        { x: rstX, y: rstY, w: 240, h: 38, action: 'reset_confirm' },
+      ];
+    } else {
+      ctx.fillStyle = '#ff5555';
+      ctx.font = 'bold 14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('⚠  Are you sure? This cannot be undone!', canvas.width / 2, rstY + 16);
+      const yesW = 140, noW = 140, gap = 16;
+      const yesX = canvas.width / 2 - yesW - gap / 2;
+      const noX = canvas.width / 2 + gap / 2;
+      ctx.fillStyle = '#551111';
+      ctx.fillRect(yesX, rstY + 22, yesW, 32);
+      ctx.strokeStyle = '#ff4444'; ctx.lineWidth = 1.5; ctx.strokeRect(yesX, rstY + 22, yesW, 32);
+      ctx.fillStyle = '#ff6666'; ctx.font = 'bold 13px monospace';
+      ctx.fillText('YES — RESET', yesX + yesW / 2, rstY + 43);
+      ctx.fillStyle = '#113322';
+      ctx.fillRect(noX, rstY + 22, noW, 32);
+      ctx.strokeStyle = '#44aa66'; ctx.lineWidth = 1.5; ctx.strokeRect(noX, rstY + 22, noW, 32);
+      ctx.fillStyle = '#44dd88'; ctx.font = 'bold 13px monospace';
+      ctx.fillText('NO — CANCEL', noX + noW / 2, rstY + 43);
+      introBoxes = [
+        { x: btnX, y: btnY, w: btnW, h: btnH, action: 'continue' },
+        { x: vDownX, y: volY + 4, w: vBtnW, h: vBtnH, action: 'vol_down' },
+        { x: vUpX, y: volY + 4, w: vBtnW, h: vBtnH, action: 'vol_up' },
+        { x: yesX, y: rstY + 22, w: yesW, h: 32, action: 'reset_do' },
+        { x: noX, y: rstY + 22, w: noW, h: 32, action: 'reset_cancel' },
+      ];
+    }
     return;
   }
 
@@ -1675,16 +1902,19 @@ function render() {
     ctx.fillStyle = 'rgba(136,102,255,0.15)';
     ctx.fillRect(canvas.width / 2 - 200, 66, 400, 2);
 
-    ctx.fillStyle = '#555577';
-    ctx.font = '12px monospace';
+    ctx.fillStyle = '#7777aa';
+    ctx.font = '14px monospace';
     ctx.fillText(`Runs: ${meta.state.totalRuns}  |  Wins: ${meta.state.totalWins}  |  Best Floor: ${meta.state.bestFloor}`, canvas.width / 2, 90);
 
     charSelectBoxes = [];
-    const CARD_W = 280, CARD_H = 340, GAP = 40;
     const chars = CharacterList;
+    const GAP = 18;
+    // Responsive sizing: fit all chars on screen
+    const CARD_W = Math.min(240, Math.floor((canvas.width - 60 - (chars.length - 1) * GAP) / chars.length));
+    const CARD_H = Math.min(370, Math.floor(canvas.height * 0.62));
     const totalW = chars.length * CARD_W + (chars.length - 1) * GAP;
     const startX = (canvas.width - totalW) / 2;
-    const startY = 130;
+    const startY = 110;
 
     for (let i = 0; i < chars.length; i++) {
       const ch = chars[i];
@@ -1728,46 +1958,83 @@ function render() {
         ui._wrapText(ctx, cond, x + 15, startY + CARD_H / 2 + 28, CARD_W - 30, 15);
       } else {
         const charStats = meta.getCharStats(ch.id);
+        const masteryLevel = meta.getMasteryLevel(ch.id);
+        const masteryRuns = meta.getMasteryRuns(ch.id);
+        const THRESHOLDS = [1, 3, 5, 10];
+        const nextThreshold = THRESHOLDS[masteryLevel] || null;
+
         ctx.fillStyle = ch.color;
-        ctx.font = 'bold 28px monospace';
+        ctx.font = `bold ${Math.min(24, CARD_W / 10)}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText(ch.name, x + CARD_W / 2, startY + 40);
-        ctx.fillStyle = '#aaa';
-        ctx.font = '14px monospace';
-        ctx.fillText(ch.title, x + CARD_W / 2, startY + 62);
-        ctx.fillStyle = '#888';
-        ctx.font = '11px monospace';
-        ui._wrapText(ctx, ch.description, x + 15, startY + 82, CARD_W - 30, 15);
-        ctx.fillStyle = '#ee4444';
-        ctx.fillText(`♥ ${ch.hp} HP`, x + CARD_W / 4, startY + 155);
-        ctx.fillStyle = '#44aaff';
-        ctx.fillText(`⚡ ${ch.apRegen}/s AP`, x + CARD_W * 3 / 4, startY + 155);
-        ctx.fillStyle = '#44ff88';
-        ctx.fillText(`💨 ${ch.baseSpeed} SPD`, x + CARD_W / 2, startY + 172);
-        // Starting pool preview (3 random from pool of 6)
-        ctx.fillStyle = '#ffdd44';
-        ctx.font = 'bold 11px monospace';
-        ctx.fillText('CARD POOL (3 random):', x + CARD_W / 2, startY + 196);
-        ctx.fillStyle = '#ccc';
-        ctx.font = '10px monospace';
-        const pool = ch.startingPool || [];
-        for (let j = 0; j < Math.min(pool.length, 6); j++) {
-          const cd = CardDefinitions[pool[j]];
-          if (cd) {
-            const col = j % 2, row = Math.floor(j / 2);
-            ctx.fillText(`${cd.name}`, x + 55 + col * 120, startY + 212 + row * 14);
-          }
+        ctx.fillText(ch.name, x + CARD_W / 2, startY + 32);
+        ctx.fillStyle = '#aabbcc';
+        ctx.font = `bold ${Math.min(13, Math.max(11, Math.floor(CARD_W / 16)))}px monospace`;
+        ctx.fillText(ch.title, x + CARD_W / 2, startY + 50);
+
+        // Description
+        ctx.fillStyle = '#99aabb';
+        ctx.font = '12px monospace';
+        const descLines = ui._wrapTextLines(ch.description, CARD_W - 20, 12);
+        for (let dl = 0; dl < Math.min(descLines.length, 3); dl++) {
+          ctx.fillText(descLines[dl], x + CARD_W / 2, startY + 68 + dl * 15);
         }
+
+        // Stats: two rows so they don't crowd each other
+        const statsY = startY + 118;
+        ctx.font = '12px monospace';
+        ctx.fillStyle = '#ee5555';
+        ctx.fillText(`♥ ${ch.hp} HP`, x + CARD_W / 3, statsY);
+        ctx.fillStyle = '#44aaff';
+        ctx.fillText(`${ch.apRegen} AP/s`, x + CARD_W * 2 / 3, statsY);
+        ctx.fillStyle = '#44ff88';
+        ctx.font = '12px monospace';
+        ctx.fillText(`${ch.baseSpeed} SPD`, x + CARD_W / 2, statsY + 17);
+
         // Per-char stats
-        ctx.fillStyle = '#555';
-        ctx.font = '10px monospace';
-        ctx.fillText(`Runs: ${charStats.runs}  Wins: ${charStats.wins}  Best: Act ${charStats.bestFloor}`, x + CARD_W / 2, startY + 266);
+        ctx.fillStyle = '#6677aa';
+        ctx.font = '11px monospace';
+        ctx.fillText(`Runs: ${charStats.runs}  ·  Wins: ${charStats.wins}`, x + CARD_W / 2, statsY + 34);
+
+        // Mastery progress bar
+        const masY = statsY + 52;
+        ctx.fillStyle = '#222235';
+        ctx.fillRect(x + 8, masY, CARD_W - 16, 14);
+        const masThresh = nextThreshold || THRESHOLDS[THRESHOLDS.length - 1];
+        const masPct = nextThreshold ? Math.min(1, masteryRuns / masThresh) : 1;
+        const masColor = masteryLevel >= 4 ? '#ffd700' : (masteryLevel >= 2 ? '#cc88ff' : ch.color);
+        ctx.fillStyle = masColor + '99';
+        ctx.fillRect(x + 8, masY, (CARD_W - 16) * masPct, 14);
+        ctx.strokeStyle = masColor + '66'; ctx.lineWidth = 1; ctx.strokeRect(x + 8, masY, CARD_W - 16, 14);
+        ctx.fillStyle = '#ddd';
+        ctx.font = 'bold 10px monospace';
+        const masLabel = masteryLevel >= 4 ? 'MASTERY MAX' : `Lv${masteryLevel} → Lv${masteryLevel + 1}: ${masteryRuns}/${masThresh} runs`;
+        ctx.fillText(masLabel, x + CARD_W / 2, masY + 10);
+
+        // Mastery card unlocks
+        ctx.fillStyle = '#44bb77';
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText('MASTERY CARDS', x + CARD_W / 2, masY + 28);
+        const mCards = ch.masteryCards || [];
+        for (let mc = 0; mc < Math.min(mCards.length, 4); mc++) {
+          const unlocked = mc < masteryLevel;
+          const cDef = CardDefinitions[mCards[mc]];
+          const cName = cDef ? cDef.name : mCards[mc];
+          ctx.fillStyle = unlocked ? '#88ffaa' : '#445566';
+          ctx.font = `${unlocked ? 'bold ' : ''}10px monospace`;
+          ctx.fillText(`Lv${mc + 1}: ${unlocked ? cName : '???'}`, x + CARD_W / 2, masY + 42 + mc * 14);
+        }
+
         // Difficulty unlock badges
         const maxD = meta.getMaxDifficulty(ch.id);
+        const badgeY = startY + CARD_H - 24;
+        const badgeW = Math.floor((CARD_W - 16) / 3);
         for (let d = 0; d <= 2; d++) {
-          ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] : '#333';
+          const bx2 = x + 8 + d * badgeW;
+          ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] + '33' : '#111';
+          ctx.fillRect(bx2, badgeY, badgeW - 2, 18);
+          ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] : '#444';
           ctx.font = d <= maxD ? 'bold 10px monospace' : '10px monospace';
-          ctx.fillText(DIFFICULTY_NAMES[d], x + 50 + d * 80, startY + CARD_H - 20);
+          ctx.fillText(DIFFICULTY_NAMES[d], bx2 + (badgeW - 2) / 2, badgeY + 12);
         }
       }
       charSelectBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, charId: ch.id, action: 'select' });
@@ -1827,35 +2094,121 @@ function render() {
     const ch = Characters[selectedCharId];
     // Hero info bar — drawn inside the map header area
     ctx.fillStyle = ch ? ch.color : '#aaa';
-    ctx.font = 'bold 14px monospace';
+    // Left: character name + HP
+    ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`${ch?.name || '?'}`, 18, 30);
-    // HP bar compact
-    const hpW = 140, hpH = 12;
+    ctx.fillText(`${ch?.name || '?'}`, 18, 28);
+    const hpW = 160, hpH = 14;
     ctx.fillStyle = '#331111';
-    ctx.fillRect(18, 38, hpW, hpH);
+    ctx.fillRect(18, 34, hpW, hpH);
     ctx.fillStyle = '#ee3333';
-    ctx.fillRect(18, 38, (player.hp / player.maxHp) * hpW, hpH);
+    ctx.fillRect(18, 34, (player.hp / player.maxHp) * hpW, hpH);
+    ctx.strokeStyle = '#553333'; ctx.lineWidth = 1; ctx.strokeRect(18, 34, hpW, hpH);
     ctx.fillStyle = '#fff';
-    ctx.font = '11px monospace';
-    ctx.fillText(`${player.hp}/${player.maxHp} HP`, 18 + hpW + 6, 48);
-    // Right side info
-    ctx.fillStyle = '#aaa';
-    ctx.textAlign = 'right';
-    ctx.fillText(`${deckManager.collection.length}/${deckManager.MAX_DECK_SIZE} cards  |  ${itemManager.equipped.length} relics`, canvas.width - 18, 30);
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(`${player.hp}/${player.maxHp} HP`, 18 + hpW + 8, 46);
     ctx.fillStyle = '#666';
-    ctx.fillText(`Seed: ${runManager.seed}`, canvas.width - 18, 48);
-    // Inventory button hint
-    ctx.fillStyle = ui.showInventory ? '#44ff88' : '#555';
+    ctx.font = '11px monospace';
+    const layersLeft = runManager.getLayersToEnd();
+    const depthLabel = layersLeft <= 1 ? 'BOSS NEXT!' : `${layersLeft - 1} room(s) to boss`;
+    ctx.fillText(`Act ${runManager.floor}  ·  ${DIFFICULTY_NAMES[selectedDifficulty]}  ·  ${depthLabel}`, 18, 62);
+
+    // Right: cards & relics info
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#88aacc';
     ctx.font = 'bold 13px monospace';
+    ctx.fillText(`${deckManager.collection.length}/${deckManager.MAX_DECK_SIZE} Cards`, canvas.width - 18, 22);
+    ctx.fillStyle = '#aa88cc';
+    ctx.fillText(`${itemManager.equipped.length} Relics`, canvas.width - 18, 40);
+
+    // Visible inventory button — above the map footer
+    const invOpen = ui.showInventory;
+    const invBtnW = 240, invBtnH = 40;
+    const invBtnX = canvas.width / 2 - invBtnW / 2;
+    const invBtnY = canvas.height - invBtnH - 56; // above the 48px footer + gap
+    ctx.fillStyle = invOpen ? 'rgba(68,255,136,0.25)' : 'rgba(30,30,50,0.85)';
+    ctx.beginPath();
+    ctx.roundRect(invBtnX, invBtnY, invBtnW, invBtnH, 8);
+    ctx.fill();
+    ctx.strokeStyle = invOpen ? '#44ff88' : '#336';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = invOpen ? '#44ff88' : '#baccdd';
+    ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('[I] Inventory', canvas.width / 2, canvas.height - 16);
+    ctx.fillText('[I]  View Cards & Relics', canvas.width / 2, invBtnY + 26);
+
     // Inventory overlay
-    if (ui.showInventory) {
+    if (invOpen) {
       ui.width = canvas.width;
       ui.height = canvas.height;
       ui.drawInventoryOverlay(ctx);
     }
+    return;
+  }
+
+  // ── REST ──
+  if (gameState === 'rest') {
+    const ctx = renderer.ctx;
+    ctx.fillStyle = 'rgba(5,8,5,0.97)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.shadowColor = '#44dd88';
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = '#44dd88';
+    ctx.font = 'bold 44px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('REST NODE', canvas.width / 2, 80);
+    ctx.restore();
+
+    ctx.fillStyle = '#556655';
+    ctx.font = '15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`HP: ${player.hp} / ${player.maxHp}`, canvas.width / 2, 116);
+
+    restChoiceBoxes = [];
+    const btnW = Math.min(400, canvas.width - 80);
+    const btnH = 90, btnGap = 24;
+    const btnStartY = (canvas.height - (2 * btnH + btnGap)) / 2;
+    const choices = [
+      {
+        action: 'heal', label: 'Heal 3 HP', color: '#44ff88', bg: '#0e2018',
+        canDo: player.hp < player.maxHp,
+        lines: [`Restore up to 3 HP`, `(${player.hp} → ${Math.min(player.hp + 3, player.maxHp)} / ${player.maxHp})`],
+      },
+      {
+        action: 'burn', label: 'Remove a Card', color: '#ffaa44', bg: '#1e1500',
+        canDo: deckManager.collection.length > 1,
+        lines: ['Permanently remove one card', `from your deck  (${deckManager.collection.length} cards)`],
+      },
+    ];
+    for (let i = 0; i < choices.length; i++) {
+      const ch = choices[i];
+      const bx = (canvas.width - btnW) / 2;
+      const by = btnStartY + i * (btnH + btnGap);
+      ctx.fillStyle = ch.canDo ? ch.bg : '#111';
+      ctx.beginPath();
+      ctx.roundRect(bx, by, btnW, btnH, 12);
+      ctx.fill();
+      ctx.strokeStyle = ch.canDo ? ch.color : '#333';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = ch.canDo ? ch.color : '#444';
+      ctx.font = 'bold 24px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(ch.label, canvas.width / 2, by + 30);
+      ctx.fillStyle = ch.canDo ? '#bbccbb' : '#444';
+      ctx.font = '14px monospace';
+      ctx.fillText(ch.lines[0], canvas.width / 2, by + 54);
+      ctx.fillStyle = ch.canDo ? '#889988' : '#333';
+      ctx.font = '13px monospace';
+      ctx.fillText(ch.lines[1], canvas.width / 2, by + 72);
+      if (ch.canDo) restChoiceBoxes.push({ x: bx, y: by, w: btnW, h: btnH, action: ch.action });
+    }
+    ctx.fillStyle = '#889988';
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Press ESC to leave without resting', canvas.width / 2, canvas.height - 28);
     return;
   }
 
@@ -1941,6 +2294,28 @@ function render() {
     ctx.fillText(DIFFICULTY_NAMES[selectedDifficulty], canvas.width - 63, 135);
     // Touch controls
     input.drawTouchControls(ctx);
+
+    // Zone transition tooltip (first-time only)
+    if (zoneTooltip && zoneTooltip.timer > 0) {
+      const alpha = Math.min(1, zoneTooltip.timer, 3.5 - zoneTooltip.timer + 0.5);
+      const ttW = Math.min(480, canvas.width - 40);
+      const ttX = (canvas.width - ttW) / 2;
+      const ttY = canvas.height / 2 - 80;
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, alpha);
+      ctx.fillStyle = 'rgba(0,0,0,0.82)';
+      ctx.beginPath();
+      ctx.roundRect(ttX, ttY, ttW, 44, 8);
+      ctx.fill();
+      ctx.strokeStyle = zoneTooltip.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = zoneTooltip.color;
+      ctx.font = 'bold 13px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(zoneTooltip.text, canvas.width / 2, ttY + 27);
+      ctx.restore();
+    }
   }
 
   // ── OVERLAYS ──
@@ -2096,8 +2471,70 @@ function drawPauseMenu() {
   ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+  // Controls overlay mode
+  if (pauseShowControls) {
+    const cW = Math.min(620, canvas.width - 60);
+    const controlLines = [
+      { text: 'CONTROLS & MECHANICS', col: '#ffdd44', font: 'bold 20px monospace' },
+      { text: '', col: '', font: '' },
+      { text: 'WASD / Arrow Keys  —  Move', col: '#ddd', font: '15px monospace' },
+      { text: 'SPACE  —  Dodge toward cursor  (no AP cost)', col: '#ddd', font: '15px monospace' },
+      { text: 'LEFT CLICK  —  Use selected card', col: '#ddd', font: '15px monospace' },
+      { text: 'RIGHT CLICK / 1–4  —  Cycle / select card slot', col: '#ddd', font: '15px monospace' },
+      { text: 'ESC  —  Pause menu', col: '#ddd', font: '15px monospace' },
+      { text: '', col: '', font: '' },
+      { text: 'THE TEMPO BAR', col: '#ffaa44', font: 'bold 16px monospace' },
+      { text: 'COLD  (<30 Tempo)  = 0.7× damage.  Ice cards deal 3× here!', col: '#4a9eff', font: '13px monospace' },
+      { text: 'FLOWING  (30–70)  = 1.0× damage, balanced.', col: '#44dd88', font: '13px monospace' },
+      { text: 'HOT  (70–90)  = 1.3× damage, 1.2× speed, dash deals damage!', col: '#ff8833', font: '13px monospace' },
+      { text: 'CRITICAL  (90+)  = 1.8× damage, attacks PIERCE!', col: '#ff3333', font: '13px monospace' },
+      { text: 'Fill to 100 → auto CRASH AoE.   Fill to 0 → ICE CRASH freeze.', col: '#aaa', font: '13px monospace' },
+      { text: '', col: '', font: '' },
+      { text: 'Perfect Dodge  —  dodge just as an attack lands → slow-mo + tempo', col: '#ddd', font: '13px monospace' },
+      { text: 'Combo  —  hit same enemy repeatedly for 1.4× damage at 3+ hits', col: '#ddd', font: '13px monospace' },
+    ];
+    const lineH = 22;
+    const cH = Math.min(canvas.height - 40, 80 + controlLines.length * lineH + 70);
+    const cpx = (canvas.width - cW) / 2;
+    const cpy = (canvas.height - cH) / 2;
+    ctx.fillStyle = '#0a0a16';
+    ctx.beginPath();
+    ctx.roundRect(cpx, cpy, cW, cH, 14);
+    ctx.fill();
+    ctx.strokeStyle = '#44aaff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    for (let i = 0; i < controlLines.length; i++) {
+      const cl = controlLines[i];
+      if (!cl.text) continue;
+      ctx.fillStyle = cl.col;
+      ctx.font = cl.font;
+      ctx.textAlign = 'center';
+      ctx.fillText(cl.text, canvas.width / 2, cpy + 36 + i * lineH);
+    }
+
+    pauseMenuBoxes = [];
+    const closeBtnW = 180, closeBtnH = 42;
+    const closeBtnX = (canvas.width - closeBtnW) / 2;
+    const closeBtnY = cpy + cH - closeBtnH - 12;
+    ctx.fillStyle = '#1a2030';
+    ctx.beginPath();
+    ctx.roundRect(closeBtnX, closeBtnY, closeBtnW, closeBtnH, 8);
+    ctx.fill();
+    ctx.strokeStyle = '#44aaff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = '#44aaff';
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('◀  BACK', canvas.width / 2, closeBtnY + 27);
+    pauseMenuBoxes.push({ x: closeBtnX, y: closeBtnY, w: closeBtnW, h: closeBtnH, action: 'controls' });
+    return;
+  }
+
   // Panel
-  const panelW = 380, panelH = pauseQuitConfirm ? 300 : 340;
+  const panelW = 400, panelH = pauseQuitConfirm ? 310 : 400;
   const px = (canvas.width - panelW) / 2;
   const py = (canvas.height - panelH) / 2;
 
@@ -2159,53 +2596,63 @@ function drawPauseMenu() {
 
   const buttons = [
     { label: 'RESUME', action: 'resume', color: '#44ff88', bg: '#1a2e22' },
+    { label: 'CONTROLS / HOW TO PLAY', action: 'controls', color: '#44aaff', bg: '#0e1a2e' },
     { label: 'RESTART RUN', action: 'restart', color: '#ffaa44', bg: '#2e2a1a' },
     { label: 'QUIT TO MENU', action: 'quit', color: '#ff5555', bg: '#2e1a1a' },
   ];
 
-  const btnW = 270, btnH = 50, btnGap = 16;
-  const btnStartY = py + 88;
+  const btnW = 270, btnH = 46, btnGap = 12;
+  const btnStartY = py + 82;
 
   for (let i = 0; i < buttons.length; i++) {
     const btn = buttons[i];
     const bx = (canvas.width - btnW) / 2;
     const by = btnStartY + i * (btnH + btnGap);
-
     ctx.fillStyle = btn.bg;
-    ctx.beginPath();
-    ctx.roundRect(bx, by, btnW, btnH, 8);
-    ctx.fill();
-    ctx.strokeStyle = btn.color;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
+    ctx.beginPath(); ctx.roundRect(bx, by, btnW, btnH, 8); ctx.fill();
+    ctx.strokeStyle = btn.color; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = btn.color;
-    ctx.font = 'bold 18px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(btn.label, canvas.width / 2, by + 32);
-
+    ctx.font = 'bold 17px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(btn.label, canvas.width / 2, by + 29);
     pauseMenuBoxes.push({ x: bx, y: by, w: btnW, h: btnH, action: btn.action });
   }
 
-  ctx.fillStyle = '#444';
-  ctx.font = '12px monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('Press ESC to resume', canvas.width / 2, py + panelH - 18);
+  // Volume control in pause menu
+  const vol = audio.getMasterVolume();
+  const volY = btnStartY + buttons.length * (btnH + btnGap) + 4;
+  ctx.fillStyle = '#556'; ctx.font = '12px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('VOLUME', canvas.width / 2, volY);
+  const pips = 10, pipW = 18, pipH = 11, pipGap = 3;
+  const pipTotalW2 = pips * (pipW + pipGap) - pipGap;
+  const pipStartX2 = canvas.width / 2 - pipTotalW2 / 2;
+  for (let p = 0; p < pips; p++) {
+    ctx.fillStyle = p < Math.round(vol * pips) ? '#44cc88' : '#1a2a22';
+    ctx.fillRect(pipStartX2 + p * (pipW + pipGap), volY + 5, pipW, pipH);
+  }
+  const vbW = 26, vbH = 22;
+  const vDownX2 = pipStartX2 - vbW - 4, vUpX2 = pipStartX2 + pipTotalW2 + 4;
+  ctx.fillStyle = '#334455'; ctx.fillRect(vDownX2, volY + 3, vbW, vbH);
+  ctx.fillStyle = '#aabb88'; ctx.font = 'bold 13px monospace';
+  ctx.fillText('−', vDownX2 + vbW / 2, volY + 18);
+  ctx.fillStyle = '#334455'; ctx.fillRect(vUpX2, volY + 3, vbW, vbH);
+  ctx.fillStyle = '#aabb88';
+  ctx.fillText('+', vUpX2 + vbW / 2, volY + 18);
+  pauseMenuBoxes.push({ x: vDownX2, y: volY + 3, w: vbW, h: vbH, action: 'vol_down' });
+  pauseMenuBoxes.push({ x: vUpX2, y: volY + 3, w: vbW, h: vbH, action: 'vol_up' });
+
+  ctx.fillStyle = '#444'; ctx.font = '11px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('ESC to resume', canvas.width / 2, py + panelH - 14);
 }
 
-window.addEventListener('click', () => {
-  if (gameState === 'intro' && audio.currentBgm !== 'Main_Menu.wav') {
+// Initialize audio on first interaction (browser policy)
+function _tryInitAudio() {
+  if (gameState === 'intro' && !audio.currentBgmFile) {
     audio.init();
     audio.playBGM('intro');
   }
-});
-
-window.addEventListener('keydown', () => {
-  if (gameState === 'intro' && audio.currentBgm !== 'Main_Menu.wav') {
-    audio.init();
-    audio.playBGM('intro');
-  }
-});
+}
+window.addEventListener('click', _tryInitAudio);
+window.addEventListener('keydown', _tryInitAudio);
 
 console.log('[Init] Game ready, starting engine.');
 const engine = new Engine(update, render);

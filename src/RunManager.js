@@ -98,6 +98,13 @@ export class RunManager {
     return this.nodeMap[this.currentNodeId];
   }
 
+  // Returns the number of node layers remaining until the boss layer
+  getLayersToEnd() {
+    const curr = this.nodeMap[this.currentNodeId];
+    if (!curr) return 0;
+    return (this.maxLayers - 1) - curr.layer;
+  }
+
   handleMapClick(mx, my, width, height) {
     if (!this.clickSpheres || !this.currentNodeId) return null;
 
@@ -284,9 +291,9 @@ export class RunManager {
 
         // Label below node
         if (cfg.label) {
-          ctx.fillStyle = isCurrent ? '#ffaa00' : (isValidNext ? cfg.col : (isPast ? '#333' : '#2a2a3a'));
-          ctx.font = `bold ${isBoss ? 13 : 10}px monospace`;
-          ctx.fillText(cfg.label, cx, cy + rad + 14);
+          ctx.fillStyle = isCurrent ? '#ffaa00' : (isValidNext ? cfg.col : (isPast ? '#444' : '#555566'));
+          ctx.font = `bold ${isBoss ? 15 : 13}px monospace`;
+          ctx.fillText(cfg.label, cx, cy + rad + 17);
         }
       }
     }

@@ -30,7 +30,9 @@
       "Bash(node --input-type=module --eval \"import\\('./src/Enemy.js'\\).then\\(m => console.log\\('Enemy exports:', Object.keys\\(m\\).join\\(', '\\)\\)\\).catch\\(e => console.error\\(e\\)\\)\")",
       "Bash(node --input-type=module --eval \"import\\('./src/tempo.js'\\).then\\(m => { const t = new m.TempoSystem\\(\\); console.log\\('DECAY_RATE:', t.DECAY_RATE\\); }\\).catch\\(e => console.error\\(e\\)\\)\")",
       "Bash(node --input-type=module --eval \"import\\('./src/Particles.js'\\).then\\(m => { const p = new m.ParticleSystem\\(\\); console.log\\('Has spawnRoomEntryFlash:', typeof p.spawnRoomEntryFlash, '| Has spawnCrashFlash:', typeof p.spawnCrashFlash\\); }\\).catch\\(e => console.error\\(e\\)\\)\")",
-      "Bash(node check-syntax.js)"
+      "Bash(node check-syntax.js)",
+      "Bash(ls src/*.js)",
+      "Bash(grep -v \"//\")"
     ]
   },
   "prefersReducedMotion": true

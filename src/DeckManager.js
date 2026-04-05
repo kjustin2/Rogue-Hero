@@ -154,6 +154,27 @@ export const CardDefinitions = {
     damage: 3, range: 120, type: 'projectile', color: '#88ccff',
     desc: 'Icy shockwave staggering all nearby 0.8s. -20 Tempo.'
   },
+
+  // ── COLD ZONE IDENTITY CARDS ──────────────────────────────────
+  ice_spike: {
+    id: 'ice_spike', name: 'Ice Spike', cost: 2, tempoShift: -20, rarity: 'uncommon',
+    damage: 30, range: 120, type: 'melee', color: '#88ddff',
+    desc: 'Deals 3× damage when in COLD zone (<30 Tempo). -20 Tempo.',
+    coldMultiplier: 3
+  },
+  glacial_press: {
+    id: 'glacial_press', name: 'Glacial Press', cost: 3, tempoShift: -25, rarity: 'uncommon',
+    damage: 8, range: 160, type: 'projectile', color: '#66ccff',
+    desc: 'In COLD zone: freeze all nearby 2s + heal 1 HP. -25 Tempo.',
+    coldHeal: 1, coldStagger: 2.0
+  },
+  frost_reave: {
+    id: 'frost_reave', name: 'Frost Reave', cost: 2, tempoShift: -18, rarity: 'rare',
+    damage: 14, range: 130, type: 'cleave', color: '#aaeeff',
+    desc: 'Cleave all nearby. Hits twice if in COLD zone. -18 Tempo.',
+    coldDoubleHit: true, bonusCard: true
+  },
+
   whirlwind: {
     id: 'whirlwind', name: 'Whirlwind', cost: 4, tempoShift: 30, rarity: 'uncommon',
     damage: 18, range: 160, type: 'cleave', color: '#ff9944',

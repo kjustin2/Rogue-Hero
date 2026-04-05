@@ -4,12 +4,15 @@ export class AudioSynthesizer {
   constructor() {
     this.ctx = null;
     this.tempoVal = 50;
+    this.masterVolume = 1.0;
+    this._sfxVolume = 0.7;
 
     // BGM handling — two elements for gapless crossfade
     this.bgmAudio = new Audio();
     this.bgmAudio.volume = 0.4;
     this.currentBgmType = null;
     this.currentBgmFile = null;
+    this._combatTrackLocked = false; // once combat starts, loop the same song
 
     // Track pools (all MP3)
     this.tracks = {
@@ -25,12 +28,15 @@ export class AudioSynthesizer {
     // Per-pool shuffle index so we don't repeat until all played
     this._poolIndex = {};
 
-    // When a track ends, queue next in same pool
+    // When a track ends, loop same song in combat or queue next from pool
     this.bgmAudio.addEventListener('ended', () => {
-      if (this.currentBgmType && this.currentBgmType !== 'intro') {
+      if (this._combatTrackLocked && this.currentBgmFile) {
+        // Same fight — replay the same song
+        this.bgmAudio.currentTime = 0;
+        this.bgmAudio.play().catch(() => {});
+      } else if (this.currentBgmType && this.currentBgmType !== 'intro') {
         this._playFromPool(this.currentBgmType);
       } else if (this.currentBgmType === 'intro') {
-        // Loop intro
         this.bgmAudio.currentTime = 0;
         this.bgmAudio.play().catch(() => {});
       }
@@ -81,19 +87,29 @@ export class AudioSynthesizer {
   }
 
   playBGM(type) {
-    // Resolve 'menu' → 'map' so they share the same pool and don't restart
     const resolved = (type === 'menu') ? 'map' : type;
-    if (this.currentBgmType === resolved) return;
+    if (this.currentBgmType === resolved && this._combatTrackLocked) return; // mid-fight, don't interrupt
+    if (this.currentBgmType === resolved && !this._combatTrackLocked) return; // same non-combat type
+    this._combatTrackLocked = (resolved === 'boss' || resolved === 'normal');
     this.currentBgmType = resolved;
     this._playFromPool(resolved);
   }
 
   silenceMusic() {
+    this._combatTrackLocked = false;
     this.currentBgmType = null;
     this.currentBgmFile = null;
     this.bgmAudio.pause();
     this.bgmAudio.currentTime = 0;
   }
+
+  setMasterVolume(v) {
+    this.masterVolume = Math.max(0, Math.min(1, v));
+    this.bgmAudio.volume = 0.4 * this.masterVolume;
+    this._sfxVolume = 0.7 * this.masterVolume;
+  }
+
+  getMasterVolume() { return this.masterVolume; }
 
   updateTempoHum(tempoValue, isPlaying) {
     this.tempoVal = tempoValue;

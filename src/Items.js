@@ -21,6 +21,8 @@ export const ItemDefinitions = {
   phantom_ink:    { id: 'phantom_ink',    name: 'Phantom Ink',    rarity: 'uncommon', color: '#bb88ff', desc: 'Invisible to enemy aggro while dodging' },
   void_shard:     { id: 'void_shard',     name: 'Void Shard',     rarity: 'uncommon', color: '#224488', desc: 'Your projectiles pierce through 1 extra enemy' },
   abyss_heart:    { id: 'abyss_heart',    name: 'Abyss Heart',    rarity: 'rare',     color: '#ff2266', desc: '+1 max HP each time you defeat a boss' },
+  quick_hands:    { id: 'quick_hands',    name: 'Quick Hands',    rarity: 'uncommon', color: '#44ffcc', desc: 'AP regenerates 40% faster' },
+  deep_well:      { id: 'deep_well',      name: 'Deep Well',      rarity: 'rare',     color: '#6644ff', desc: '+1 maximum AP capacity (5 → 6)' },
 };
 
 export class ItemManager {
@@ -63,6 +65,12 @@ export class ItemManager {
         player.maxHp += 3;
         if (!noHeal) player.hp = Math.min(player.hp + 3, player.maxHp);
         player.BASE_SPEED = Math.round(player.BASE_SPEED * 0.9);
+        break;
+      case 'quick_hands':
+        player.apRegen = (player.apRegen || 0.7) * 1.4;
+        break;
+      case 'deep_well':
+        player.maxBudget += 1;
         break;
     }
 
@@ -108,6 +116,7 @@ export class ItemManager {
     if (this.has('abyss_heart')) {
       player.maxHp++;
       player.hp = Math.min(player.hp + 1, player.maxHp);
+      events.emit('RELIC_ACTIVATED', { name: 'Abyss Heart', text: '+1 MAX HP' });
       return true;
     }
     return false;
@@ -128,10 +137,14 @@ export class ItemManager {
 
   // On enemy kill callback
   onKill(tempoValue, player) {
-    if (this.has('sustained')) this.sustainedTimer = 2.0;
+    if (this.has('sustained')) {
+      this.sustainedTimer = 2.0;
+      events.emit('RELIC_ACTIVATED', { name: 'Sustained', text: 'NO DECAY' });
+    }
     if (this.has('cold_blood') && tempoValue < 30 && !this.coldBloodUsedThisRoom) {
       this.coldBloodUsedThisRoom = true;
       player.heal(1);
+      events.emit('RELIC_ACTIVATED', { name: 'Cold Blood', text: '+1 HP' });
       return true;
     }
     return false;
@@ -145,6 +158,7 @@ export class ItemManager {
       player.alive = true;
       // Trigger crash directly via event (uses the new auto-crash system)
       events.emit('REQUEST_PLAYER_POS_CRASH', { radius: 100, dmg: 25, accidental: true });
+      events.emit('RELIC_ACTIVATED', { name: 'Last Rites', text: 'REVIVED!' });
       return true; // Revived
     }
     return false;

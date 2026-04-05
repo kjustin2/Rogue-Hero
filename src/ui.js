@@ -72,6 +72,23 @@ export class UI {
     if (this.enemies) this._drawMinimap(ctx);
     if (this.deckManager && this.cardDefs) this._drawHand(ctx);
     this._drawTempoBar(ctx);
+    if (this.player && this.player.silenced) this._drawSilencedIndicator(ctx);
+  }
+
+  _drawSilencedIndicator(ctx) {
+    const t = this.player.silenceTimer || 0;
+    const pulse = (Math.sin(this._pulseTimer * 8) + 1) * 0.5;
+    ctx.save();
+    ctx.fillStyle = `rgba(180,50,255,${0.18 + pulse * 0.12})`;
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.fillStyle = `rgba(200,80,255,${0.75 + pulse * 0.25})`;
+    ctx.font = 'bold 32px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SILENCED', this.width / 2, this.height / 2 - 60);
+    ctx.fillStyle = 'rgba(200,80,255,0.7)';
+    ctx.font = '16px monospace';
+    ctx.fillText(`Cards disabled  —  ${t.toFixed(1)}s`, this.width / 2, this.height / 2 - 28);
+    ctx.restore();
   }
 
   // ── Zone vignette — subtle colored border tint based on tempo state
@@ -92,12 +109,12 @@ export class UI {
 
   // ── Tempo bar — center screen, above the card hand
   _drawTempoBar(ctx) {
-    const CARD_H = 180;
+    const CARD_H = 192; // must match _drawHand
     const BAR_W = Math.min(580, this.width - 100);
     const BAR_H = 22;
     const bx = (this.width - BAR_W) / 2;
-    // Position above the card hand with breathing room
-    const by = this.height - CARD_H - 22 - BAR_H - 28; // sits above card area
+    // Position above the card hand with clear breathing room
+    const by = this.height - CARD_H - 22 - BAR_H - 44; // increased gap
 
     // Background
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
@@ -142,7 +159,7 @@ export class UI {
       { pct: 0.90, label: 'HOT' },
     ];
     ctx.fillStyle = PAL.MUTED;
-    ctx.font = '10px monospace';
+    ctx.font = '11px monospace';
     ctx.textAlign = 'center';
     for (const z of zones) {
       const tx = bx + BAR_W * z.pct;
@@ -267,7 +284,8 @@ export class UI {
     ctx.textAlign = 'left';
     ctx.fillText('RELICS', startX, y - 2);
 
-    const { ItemDefinitions } = require_itemDefs();
+    const ItemDefinitions = window._itemDefs;
+    if (!ItemDefinitions) return;
     for (let i = 0; i < this.itemManager.equipped.length; i++) {
       const id = this.itemManager.equipped[i];
       const def = ItemDefinitions[id];
@@ -500,11 +518,13 @@ export class UI {
       ctx.fillText(`[${i + 1}]`, x + CARD_W - 8, y + 16);
 
       if (cardId && def) {
-        // Card name — larger, clearer
+        // Card name — scale down font for long names to avoid overlapping AP badge
+        const nameFontSize = def.name.length > 11 ? 13 : 16;
         ctx.fillStyle = canAfford ? '#ffffff' : '#666';
-        ctx.font = `bold 16px monospace`;
+        ctx.font = `bold ${nameFontSize}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText(def.name, x + CARD_W / 2, y + 32);
+        // Shift center right slightly to clear the AP badge on the left
+        ctx.fillText(def.name, x + CARD_W / 2 + 8, y + 32);
 
         // Divider line under name
         ctx.strokeStyle = (def.color || '#5577aa') + (canAfford ? 'aa' : '44');
@@ -574,44 +594,66 @@ export class UI {
     }
 
     // Control hint
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.font = '11px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Left-Click: Attack  |  Right-Click / 1-4: Switch Card  |  F: CRASH (85+ Tempo)', this.width / 2, this.height - 4);
+    ctx.fillText('[Left-Click] Attack  |  [Right-Click / 1-4] Switch Card  |  [ESC] Pause', this.width / 2, this.height - 5);
   }
 
   // ───────────── PREP SCREEN ─────────────
   drawPrepScreen(ctx) {
-    ctx.fillStyle = 'rgba(0,0,0,0.9)';
+    ctx.fillStyle = 'rgba(0,0,0,0.92)';
     ctx.fillRect(0, 0, this.width, this.height);
 
     ctx.fillStyle = '#44aaff';
-    ctx.font = 'bold 36px monospace';
+    ctx.font = 'bold 40px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('EQUIP LOADOUT', this.width / 2, 55);
+    ctx.fillText('EQUIP LOADOUT', this.width / 2, 52);
 
     if (this.prepPendingCard) {
       const pDef = this.deckManager.getCardDef(this.prepPendingCard);
+      ctx.fillStyle = '#111a22';
+      ctx.beginPath();
+      ctx.roundRect(this.width / 2 - 280, 64, 560, 36, 6);
+      ctx.fill();
+      ctx.strokeStyle = '#ffdd44';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
       ctx.fillStyle = '#ffdd44';
       ctx.font = 'bold 14px monospace';
-      ctx.fillText(`Selected: ${pDef?.name || this.prepPendingCard} — click a slot to equip it  (or click again to cancel)`, this.width / 2, 85);
+      ctx.fillText(`"${pDef?.name || this.prepPendingCard}" selected  —  now click a hand SLOT to equip it`, this.width / 2, 87);
     } else {
-      ctx.fillStyle = PAL.MUTED;
-      ctx.font = '13px monospace';
-      ctx.fillText('Click a card from your collection, then click a hand SLOT to assign it.', this.width / 2, 85);
+      ctx.fillStyle = '#778899';
+      ctx.font = '14px monospace';
+      ctx.fillText('Step 1: click a card below to select it.   Step 2: click a hand slot (top) to equip it.', this.width / 2, 80);
     }
     ctx.fillStyle = PAL.GOLD;
-    ctx.font = 'bold 15px monospace';
-    ctx.fillText('Press ENTER to fight!', this.width / 2, 110);
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText('Press ENTER to fight!', this.width / 2, 108);
 
     this._drawHand(ctx);
 
-    const GAP = 10;
-    const CARD_W = 110, CARD_H = 140;
-    const COLS = Math.floor((this.width - 80) / (CARD_W + GAP));
+    // When a card is pending, draw pulsing arrows above each equippable hand slot
+    if (this.prepPendingCard && this.handBoxes.length > 0) {
+      const pulse = (Math.sin(this._pulseTimer * 6) + 1) * 0.5;
+      ctx.fillStyle = `rgba(255,221,68,${0.5 + pulse * 0.5})`;
+      ctx.font = 'bold 18px monospace';
+      ctx.textAlign = 'center';
+      for (const hb of this.handBoxes) {
+        const slotId = this.deckManager.hand[hb.slotIndex];
+        if (slotId === '__wide') continue;
+        const arrowX = hb.x + hb.w / 2;
+        const arrowY = hb.y - 28;
+        ctx.fillText('▼', arrowX, arrowY);
+      }
+    }
+
+    const GAP = 12;
+    const CARD_W = 140, CARD_H = 168;
+    const COLS = Math.floor((this.width - 60) / (CARD_W + GAP));
     const totalW = COLS * (CARD_W + GAP) - GAP;
     const startX = (this.width - totalW) / 2;
-    const startY = 145;
+    const startY = 140;
 
     this.prepBoxes = [];
     const collection = this.deckManager.collection;
@@ -639,29 +681,29 @@ export class UI {
 
       if (isEquipped) {
         ctx.fillStyle = PAL.GOLD;
-        ctx.font = 'bold 8px monospace';
+        ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`SLOT ${equippedSlot + 1}`, x + CARD_W - 4, y + 12);
+        ctx.fillText(`SLOT ${equippedSlot + 1}`, x + CARD_W - 5, y + 13);
       }
       ctx.textAlign = 'center';
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 12px monospace';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 22);
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(def.name, x + CARD_W / 2, y + 24);
       ctx.fillStyle = rarCol;
-      ctx.font = '8px monospace';
-      ctx.fillText((def.rarity || 'common').toUpperCase(), x + CARD_W / 2, y + 33);
+      ctx.font = '10px monospace';
+      ctx.fillText((def.rarity || 'common').toUpperCase(), x + CARD_W / 2, y + 37);
       ctx.fillStyle = '#44aaff';
       ctx.font = '11px monospace';
-      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 44);
+      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 51);
       ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
-      ctx.font = '10px monospace';
-      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 58);
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 65);
       ctx.fillStyle = def.color || '#888';
-      ctx.font = 'bold 9px monospace';
-      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 72);
+      ctx.font = 'bold 10px monospace';
+      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 80);
       ctx.fillStyle = PAL.MUTED;
-      ctx.font = '9px monospace';
-      this._wrapText(ctx, def.desc, x + 5, y + 88, CARD_W - 10, 11);
+      ctx.font = '10px monospace';
+      this._wrapText(ctx, def.desc, x + 6, y + 96, CARD_W - 12, 13);
       this.prepBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
     }
 
@@ -1095,6 +1137,49 @@ export class UI {
       }
     }
 
+    // Final deck (cards you had when the run ended)
+    if (stats.finalDeck && stats.finalDeck.length > 0) {
+      const deckY = startY + lines.length * 26 + 28;
+      const lbOffset = (leaderboard && leaderboard.length > 0)
+        ? Math.min(5, leaderboard.length) * 22 + 60
+        : 0;
+      const deckStartY = deckY + lbOffset;
+      const dCW = 120, dCH = 32, dCGap = 6;
+      const dCols = Math.floor((this.width - 80) / (dCW + dCGap));
+      const deckRows = Math.ceil(stats.finalDeck.length / dCols);
+      const totalDeckH = deckRows * (dCH + dCGap) + 36;
+
+      if (deckStartY + totalDeckH < this.height - 60) {
+        ctx.fillStyle = PAL.MUTED;
+        ctx.font = 'bold 14px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(`FINAL DECK (${stats.finalDeck.length} cards)`, this.width / 2, deckStartY + 16);
+        const dStartX = (this.width - (Math.min(stats.finalDeck.length, dCols) * (dCW + dCGap) - dCGap)) / 2;
+        for (let i = 0; i < stats.finalDeck.length; i++) {
+          const def = this.cardDefs[stats.finalDeck[i]];
+          if (!def) continue;
+          const col = i % dCols, row = Math.floor(i / dCols);
+          const dcx = dStartX + col * (dCW + dCGap);
+          const dcy = deckStartY + 26 + row * (dCH + dCGap);
+          const rarCol = def.rarity === 'rare' ? PAL.RARE : (def.rarity === 'uncommon' ? PAL.UNCOMMON : PAL.COMMON);
+          ctx.fillStyle = '#111120';
+          ctx.fillRect(dcx, dcy, dCW, dCH);
+          ctx.fillStyle = def.color || '#5577aa';
+          ctx.fillRect(dcx, dcy, dCW, 2);
+          ctx.strokeStyle = rarCol + '66';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(dcx, dcy, dCW, dCH);
+          ctx.fillStyle = PAL.TEXT;
+          ctx.font = 'bold 10px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText(def.name, dcx + dCW / 2, dcy + 14);
+          ctx.fillStyle = PAL.MUTED;
+          ctx.font = '9px monospace';
+          ctx.fillText(`${def.type} · ${def.cost}AP`, dcx + dCW / 2, dcy + 26);
+        }
+      }
+    }
+
     ctx.fillStyle = PAL.MUTED;
     ctx.font = '16px monospace';
     ctx.textAlign = 'center';
@@ -1116,7 +1201,7 @@ export class UI {
 
   // ───────────── INVENTORY OVERLAY ─────────────
   drawInventoryOverlay(ctx) {
-    const { ItemDefinitions } = require_itemDefs();
+    const ItemDefinitions = window._itemDefs || {};
     const panelW = Math.min(700, this.width - 60);
     const panelH = Math.min(520, this.height - 80);
     const px = (this.width - panelW) / 2;
@@ -1183,8 +1268,8 @@ export class UI {
       ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
       ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' T', cx + CW / 2, cy + 51);
       ctx.fillStyle = '#ccc';
-      ctx.font = '9px monospace';
-      this._wrapText(ctx, def.desc, cx + 4, cy + 64, CW - 8, 11);
+      ctx.font = '11px monospace';
+      this._wrapText(ctx, def.desc, cx + 4, cy + 64, CW - 8, 13);
     }
 
     // Relics section
@@ -1215,16 +1300,16 @@ export class UI {
         ctx.textAlign = 'center';
         ctx.fillText(def.name, rx + RW / 2, ry + 18);
         ctx.fillStyle = rarCol;
-        ctx.font = '9px monospace';
+        ctx.font = '11px monospace';
         ctx.fillText(def.rarity.toUpperCase(), rx + RW / 2, ry + 30);
         ctx.fillStyle = '#bbb';
-        ctx.font = '9px monospace';
-        this._wrapText(ctx, def.desc, rx + 4, ry + 42, RW - 8, 10);
+        ctx.font = '11px monospace';
+        this._wrapText(ctx, def.desc, rx + 4, ry + 44, RW - 8, 12);
       }
     }
 
     ctx.fillStyle = PAL.MUTED;
-    ctx.font = '12px monospace';
+    ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('Press [I] or ESC to close', this.width / 2, py + panelH - 14);
   }
@@ -1234,16 +1319,17 @@ export class UI {
     ctx.fillStyle = 'rgba(0,0,0,0.92)';
     ctx.fillRect(0, 0, this.width, this.height);
 
-    ctx.fillStyle = PAL.CRITICAL;
+    const isBurnMode = newCardId === '__BURN__';
+    ctx.fillStyle = isBurnMode ? '#ffaa44' : PAL.CRITICAL;
     ctx.font = 'bold 34px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('DECK FULL', this.width / 2, 62);
+    ctx.fillText(isBurnMode ? 'REMOVE A CARD' : 'DECK FULL', this.width / 2, 62);
 
     ctx.fillStyle = PAL.TEXT;
     ctx.font = '15px monospace';
-    ctx.fillText('You already have 6 cards. Choose one to DISCARD:', this.width / 2, 92);
+    ctx.fillText(isBurnMode ? 'Choose a card to permanently remove from your deck:' : 'You already have 6 cards. Choose one to DISCARD:', this.width / 2, 92);
 
-    const newDef = this.deckManager.getCardDef(newCardId) || CardDefinitions[newCardId];
+    const newDef = isBurnMode ? null : (this.deckManager.getCardDef(newCardId) || CardDefinitions[newCardId]);
     if (newDef) {
       ctx.fillStyle = PAL.FLOWING;
       ctx.font = 'bold 13px monospace';
@@ -1310,6 +1396,23 @@ export class UI {
   }
 
   // ─────────────────────────────────────��─────────────────────────
+  // Returns array of wrapped lines without drawing (uses approximate char width for monospace)
+  _wrapTextLines(text, maxWidth, fontSize) {
+    if (!text) return [];
+    const avgCharW = fontSize * 0.62;
+    const charsPerLine = Math.max(1, Math.floor(maxWidth / avgCharW));
+    const words = text.split(' ');
+    const lines = [];
+    let line = '';
+    for (const word of words) {
+      const test = line ? line + ' ' + word : word;
+      if (test.length > charsPerLine && line) { lines.push(line); line = word; }
+      else { line = test; }
+    }
+    if (line) lines.push(line);
+    return lines;
+  }
+
   _wrapText(ctx, text, x, y, maxWidth, lineHeight) {
     if (!text) return;
     const prevAlign = ctx.textAlign;

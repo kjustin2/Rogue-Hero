@@ -60,18 +60,23 @@ export class RoomManager {
       this.pillars.push({ x: this.FLOOR_X1 + margin, y: this.FLOOR_Y2 - margin - ps, w: ps, h: ps });
       this.pillars.push({ x: this.FLOOR_X2 - margin - ps, y: this.FLOOR_Y2 - margin - ps, w: ps, h: ps });
     } else if (this.variant === 'corridor') {
-      // Two long walls creating a corridor with gaps
-      const wallH = 25;
-      const gapW = 100;
+      // Two shorter walls with wide center gaps — enemies can navigate through
+      const wallH = 20;
+      const gapW = 220; // wide gap so enemies can always path through
       const topY = this.FLOOR_Y1 + Math.floor(fh * 0.33);
       const botY = this.FLOOR_Y1 + Math.floor(fh * 0.63);
-      const gapX1 = this.FLOOR_X1 + Math.floor(fw * 0.25);
-      const gapX2 = this.FLOOR_X1 + Math.floor(fw * 0.65);
+      const wallW = Math.floor(fw * 0.28); // each wall segment is 28% of floor width
+      const margin = Math.floor(fw * 0.06); // small margin from edges
 
-      this.pillars.push({ x: this.FLOOR_X1, y: topY, w: gapX1 - this.FLOOR_X1, h: wallH });
-      this.pillars.push({ x: gapX1 + gapW, y: topY, w: this.FLOOR_X2 - gapX1 - gapW, h: wallH });
-      this.pillars.push({ x: this.FLOOR_X1, y: botY, w: gapX2 - this.FLOOR_X1, h: wallH });
-      this.pillars.push({ x: gapX2 + gapW, y: botY, w: this.FLOOR_X2 - gapX2 - gapW, h: wallH });
+      // Top wall: left segment + right segment, gap in center-left area
+      const topGapX = this.FLOOR_X1 + margin + wallW;
+      this.pillars.push({ x: this.FLOOR_X1 + margin, y: topY, w: wallW, h: wallH });
+      this.pillars.push({ x: topGapX + gapW, y: topY, w: wallW, h: wallH });
+
+      // Bottom wall: offset gap position for variety
+      const botGapX = this.FLOOR_X1 + margin + Math.floor(wallW * 0.4);
+      this.pillars.push({ x: this.FLOOR_X1 + margin, y: botY, w: Math.floor(wallW * 0.4), h: wallH });
+      this.pillars.push({ x: botGapX + gapW, y: botY, w: wallW, h: wallH });
     }
   }
 

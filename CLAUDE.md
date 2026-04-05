@@ -11,45 +11,144 @@ python -m http.server 8000
 # Then open http://localhost:8000
 ```
 
-The game is a vanilla ES module app — all imports use native browser `import`. There is no bundler, no transpiler, no package manager.
+Vanilla ES modules — native browser `import`, no bundler, no transpiler, no package manager.
+
+## Syntax Check
+
+```bash
+node check-syntax.js
+```
+
+Always run this after any edits. All 21 `src/*.js` files must pass (0 errors).
+
+---
 
 ## Architecture Overview
 
-**Entry point:** `src/main.js` — instantiates all systems, wires them together, owns the game state machine, and drives the main update/render loop.
+**Entry point:** `src/main.js` — instantiates all systems, wires them together, owns the game state machine, and drives the main update/render loop. It is ~2400 lines and intentionally monolithic for the game loop and render pipeline.
 
-**Game state machine** (string variable `gameState` in `main.js`):
-`intro → charSelect → map → prep → playing → draft → itemReward → shop → upgrade → event → stats → dead / victory`
+**Game state machine** (`gameState` string in `main.js`):
+```
+intro → charSelect → map → prep → playing → draft → itemReward → shop → upgrade → event → rest → discard → stats
+                                  ↕ paused (overlay)
+```
+Note: `dead` and `victory` do not exist as states — both end in `stats`. `rest` state is the new rest node choice screen (heal vs burn a card). `discard` with `discardPendingCardId === '__BURN__'` removes a card without adding a replacement.
 
 **Core systems and their roles:**
 
 | File | Role |
 |---|---|
-| `src/Engine.js` | `requestAnimationFrame` loop, hit-stop (freezes logic), slow-mo (scales `dt`) |
-| `src/EventBus.js` | Singleton `events` pub/sub bus — all cross-system communication flows through this |
-| `src/tempo.js` | `TempoSystem` — the central 0–100 resource; listens to `COMBO_HIT`, `KILL`, `DODGE`, `PERFECT_DODGE`, etc. |
-| `src/state.js` | `RunState` singleton — persistent run data (HP, items, XP, floor); `CLASS_DATA`, `ITEM_POOL`, `LEVEL_UP_POOL` |
-| `src/Combat.js` | `CombatManager` — hitbox resolution, damage application, post-dodge crit window |
-| `src/Enemy.js` | Base `Enemy` class + all named enemy/boss subclasses |
-| `src/player.js` | `Player` — movement, combo attacks, heavy strike, dodge logic |
-| `src/DeckManager.js` | `CardDefinitions` (all card data) + `DeckManager` (hand/deck/draw state) |
-| `src/Items.js` | `ItemDefinitions` + `ItemManager` (per-update item effects) |
-| `src/RunManager.js` | Procedural map generation (seeded RNG, layer graph with fight/elite/event/shop/rest/boss nodes) |
-| `src/room.js` | `RoomManager` — room layout variants (standard/pillars/arena/corridor), pillar placement |
-| `src/MetaProgress.js` | Persistent unlocks and score calculation (localStorage) |
-| `src/Characters.js` | `CharacterList`, difficulty modifiers (`DIFFICULTY_MODS`) |
+| `src/Engine.js` | `requestAnimationFrame` loop, hit-stop (freezes logic dt), slow-mo (scales dt) |
+| `src/EventBus.js` | Singleton `events` pub/sub — **all cross-system communication flows through this** |
+| `src/tempo.js` | `TempoSystem` — 0–100 resource with auto-crash at both extremes |
+| `src/Combat.js` | `CombatManager` — card type dispatch, hitbox resolution, damage, post-dodge crit |
+| `src/Enemy.js` | Base `Enemy` class + 29 named subclasses (including 5 bosses) |
+| `src/player.js` | `Player` — movement, combo system, dodge, class passives |
+| `src/DeckManager.js` | `CardDefinitions` (~104 cards) + `DeckManager` (hand/deck/draw/upgrade state) |
+| `src/Items.js` | `ItemDefinitions` (19 relics) + `ItemManager` (per-update effects, kill/death callbacks) |
+| `src/RunManager.js` | Procedural map graph (seeded RNG, layered fight/elite/event/shop/rest/boss nodes) |
+| `src/room.js` | `RoomManager` — room layout variants (standard/pillars/arena/corridor), pillar collision |
+| `src/MetaProgress.js` | localStorage persistence: unlocks, leaderboard, mastery, volume |
+| `src/Characters.js` | 6 character definitions + `DIFFICULTY_MODS` |
 | `src/Projectile.js` | `ProjectileManager` — projectile pool, movement, collision |
-| `src/Particles.js` | `ParticleSystem` — visual-only effects |
-| `src/Renderer.js` | All canvas draw calls |
-| `src/ui.js` | `UI` — HUD, menus, card selection, all non-canvas overlays |
-| `src/audio.js` | `AudioSynthesizer` — Web Audio API procedural sound |
-| `src/effects.js` | One-shot visual effect helpers |
-| `src/enemies.js` | Enemy spawn tables per floor |
+| `src/Particles.js` | `ParticleSystem` — visual-only effects, damage numbers, flashes |
+| `src/Renderer.js` | Canvas clear, screen shake scope, touch controls |
+| `src/ui.js` | `UI` — HUD (HP/AP/tempo bar/hand/minimap/relics), all menu screens |
+| `src/audio.js` | `AudioSynthesizer` — MP3 BGM pools + Web Audio API SFX |
+| `src/Input.js` | Keyboard + mouse + touch input, per-frame consume pattern |
+| `src/Entity.js` | Base class with `x, y, r, alive` |
 
-**Key design patterns:**
+---
 
-- **EventBus over direct references** — systems talk through `events.emit()`/`events.on()`. When adding behavior that crosses system boundaries, add a new event rather than passing object references.
-- **`RunState` is the source of truth** for mid-run player stats (HP, items, level). `Player` object mirrors these values at run start and on item pickup; always update both when changing HP or speed.
-- **`window._itemDefs`** is set in `main.js` to break a circular import between `Items.js` and `ui.js`.
-- **`window.CANVAS_W` / `window.CANVAS_H`** are global constants updated on resize; used throughout for bounds checks.
-- **Tempo zones:** Cold < 30, Normal 30–69, Hot 70–84, Critical 85–99, Crashed (post-100). Zone affects dodge cost, damage multiplier, enemy speed, and ability availability.
-- **Cards have a `tempoShift` field** — positive raises Tempo, negative lowers it. `slotWidth: 2` cards occupy two hand slots.
+## Key Design Patterns
+
+**EventBus over direct refs.** Systems communicate via `events.emit()`/`events.on()`. When adding cross-system behavior, emit a new event rather than passing object references. Key events: `COMBO_HIT`, `KILL`, `DODGE`, `PERFECT_DODGE`, `HEAVY_HIT`, `DAMAGE_TAKEN`, `ZONE_TRANSITION`, `ENEMY_MELEE_HIT` (with `{ damage, source }`), `COLD_CRASH`, `CRASH_ATTACK`, `PLAYER_SILENCED`, `SPLITTER_DIED`, `SPAWN_TRAP/ORBS/ECHO/SIGIL/GROUND_WAVE/BEAM_FLASH`.
+
+**`window._itemDefs`** is set in `main.js` to break a circular import — always use `window._itemDefs` (not `ItemDefinitions`) inside `ui.js`.
+
+**`window.CANVAS_W` / `window.CANVAS_H`** are globals updated on resize; used throughout for bounds.
+
+**Run-state ownership.** The `player` object holds live HP/stats during a run. `meta` (MetaProgress) holds persistent cross-run data. There is no `RunState` singleton — that file is dead.
+
+---
+
+## Tempo System
+
+`src/tempo.js` — the central 0–100 resource:
+
+| Zone | Range | Effect |
+|---|---|---|
+| COLD | < 30 | 0.7× damage, 0.9× speed |
+| FLOWING | 30–69 | 1.0× damage, 1.0× speed |
+| HOT | 70–89 | 1.3× damage, 1.2× speed, dash-attacks deal contact damage |
+| CRITICAL | 90–99 | 1.8× damage, pierce on attacks |
+| CRASHED | — | Brief stagger, reset to `crashResetValue` |
+
+- **Auto-crash at 100** (accidental): circular AoE burst around player, resets to `crashResetValue`
+- **Auto-crash at 0** (cold crash): massive freeze AoE, resets to 20
+
+`_doCrash()` resets **both** `value` and `targetValue` to `crashResetValue` — failing to reset `targetValue` causes an immediate reclimb to 100.
+
+Decay is blocked when: `itemManager.sustainedTimer > 0` (Sustained item), or `runaway` item + value ≥ 70.
+
+---
+
+## Card System
+
+Cards in `DeckManager.CardDefinitions` have: `id, name, cost (AP), tempoShift, damage, range, type, rarity, desc`. Optional: `slotWidth: 2` (occupies two hand slots), `bonusCard: true` (requires unlock).
+
+**Card types dispatched in `Combat.executeCard()`:**
+
+`melee`, `cleave`, `dash`, `projectile`, `shot` — direct combat  
+`beam` — line-distance check `|ex*ny - ey*nx|`  
+`trap` — placed at cursor, triggers on enemy overlap  
+`orbit` — orbiting projectiles spawned around player  
+`channel` — held-mouse continuous damage (polled in main update loop)  
+`sigil` — placed marker, triggers on tempo zone events  
+`echo` — delayed action executed at a position after a timer  
+`ground` — wave traveling in cursor direction  
+`counter` — sets parry window; triggers via `ENEMY_MELEE_HIT` event  
+`stance` — toggles `player.stance` string, modifies subsequent attacks  
+`utility` — misc effects (mark, flip, phase, oath)
+
+**World arrays** maintained in `main.js` scope: `traps[]`, `orbs[]`, `echoes[]`, `sigils[]`, `groundWaves[]`, `beamFlashes[]`, `channelState`. These are cleared on each room spawn.
+
+---
+
+## Characters & Mastery
+
+6 characters in `src/Characters.js`: Blade, Frost, Shadow, Echo, Wraith, Vanguard. Each has `passives` object checked in combat/tempo/player. Each has `masteryCards[4]` — unlocked at 1/3/5/10 runs with that character via `MetaProgress.incrementMastery()`.
+
+Mastery-unlocked cards are treated as `bonusCard: true` entries; `getAvailableCards()` in `main.js` checks both `isBonusCardUnlocked` and `isMasteryCardUnlocked`.
+
+---
+
+## Enemy System
+
+30 enemy classes in `src/Enemy.js`. All subclasses call `room.clamp()` after movement — this applies pillar collision. If enemies get stuck against walls, they stop moving (no pathfinding). The corridor room variant uses short wall segments with 220px gaps to mitigate this.
+
+Enemy communication to player: always emit `ENEMY_MELEE_HIT` with `{ damage, source: this }` so the parry system and Vanguard guard system work correctly.
+
+Special enemies: Disruptor emits `PLAYER_SILENCED { duration }` — while `player.silenced = true`, all card clicks show "SILENCED!" and play miss sound.
+
+---
+
+## Audio
+
+`src/audio.js` uses MP3 files in `music/`. Track pools:
+- `boss`: Boss_Battle.mp3 × 6 (shuffle-bag)
+- `normal`: Normal_Battle.mp3 × 7 (shuffle-bag)
+- `map`/`menu`: Selection_Map.mp3 × 3 (shuffle-bag)
+- `intro`: Main_Menu.mp3 (looping)
+
+**Combat track locking**: `_combatTrackLocked = true` when entering boss/normal combat. The `ended` listener replays the same song. Only `silenceMusic()` unlocks it. This ensures the same song plays for the entire fight.
+
+Master volume is persisted to `MetaProgress.state.masterVolume` and restored on startup.
+
+---
+
+## MetaProgress (localStorage)
+
+Key state fields: `unlockedCharacters`, `difficultyTiers`, `unlockedBonusCards`, `masteryUnlockedCards`, `charMastery` (run counts per char), `perCharacterStats`, `leaderboard`, `masterVolume`.
+
+`resetAll()` deep-clones `DEFAULT_STATE` so all fields including nested objects are reset cleanly.

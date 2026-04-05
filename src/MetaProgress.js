@@ -15,7 +15,16 @@ const DEFAULT_STATE = {
     blade:  { runs: 0, wins: 0, bestFloor: 0 },
     frost:  { runs: 0, wins: 0, bestFloor: 0 },
     shadow: { runs: 0, wins: 0, bestFloor: 0 },
-  }
+    echo:   { runs: 0, wins: 0, bestFloor: 0 },
+    wraith: { runs: 0, wins: 0, bestFloor: 0 },
+    vanguard: { runs: 0, wins: 0, bestFloor: 0 },
+  },
+  // Mastery tracks runs played per character — unlocks character-specific cards
+  charMastery: {
+    blade: 0, frost: 0, shadow: 0, echo: 0, wraith: 0, vanguard: 0,
+  },
+  masteryUnlockedCards: [], // globally unlocked via mastery
+  masterVolume: 1.0,
 };
 
 export class MetaProgress {
@@ -132,10 +141,56 @@ export class MetaProgress {
   }
 
   resetAll() {
-    this.state = { ...DEFAULT_STATE };
+    this.state = JSON.parse(JSON.stringify(DEFAULT_STATE));
     this.save();
     console.log('[Meta] Progress reset');
   }
+
+  // ── MASTERY ──
+
+  // Mastery thresholds per level (runs required)
+  static MASTERY_THRESHOLDS = [1, 3, 5, 10];
+
+  getMasteryLevel(charId) {
+    const runs = (this.state.charMastery && this.state.charMastery[charId]) || 0;
+    let level = 0;
+    for (const threshold of MetaProgress.MASTERY_THRESHOLDS) {
+      if (runs >= threshold) level++;
+      else break;
+    }
+    return level; // 0-4
+  }
+
+  getMasteryRuns(charId) {
+    return (this.state.charMastery && this.state.charMastery[charId]) || 0;
+  }
+
+  incrementMastery(charId) {
+    if (!this.state.charMastery) this.state.charMastery = {};
+    if (!this.state.charMastery[charId]) this.state.charMastery[charId] = 0;
+    const prevLevel = this.getMasteryLevel(charId);
+    this.state.charMastery[charId]++;
+    const newLevel = this.getMasteryLevel(charId);
+    this.save();
+    return newLevel > prevLevel ? newLevel : 0; // returns new mastery level if leveled up, else 0
+  }
+
+  isMasteryCardUnlocked(cardId) {
+    return this.state.masteryUnlockedCards && this.state.masteryUnlockedCards.includes(cardId);
+  }
+
+  unlockMasteryCard(cardId) {
+    if (!this.state.masteryUnlockedCards) this.state.masteryUnlockedCards = [];
+    if (!this.state.masteryUnlockedCards.includes(cardId)) {
+      this.state.masteryUnlockedCards.push(cardId);
+      this.save();
+      return true;
+    }
+    return false;
+  }
+
+  getMasterVolume() { return this.state.masterVolume !== undefined ? this.state.masterVolume : 1.0; }
+  setMasterVolume(v) { this.state.masterVolume = Math.max(0, Math.min(1, v)); this.save(); }
 }
 
 // ── SCORE CALCULATOR ──

@@ -214,6 +214,11 @@ export class CombatManager {
         }
 
         let hitMult = player.comboCount >= 3 ? 1.4 : 1;
+        // Ice Spike: 3× damage in COLD zone
+        if (cardDef.coldMultiplier && this.tempo.value < 30) {
+          hitMult *= cardDef.coldMultiplier;
+          this.particles.spawnDamageNumber(nearest.x, nearest.y - 30, 'COLD ×3!');
+        }
         // Counter Slash / Riposte: bonus damage if used shortly after a dodge
         if ((cardDef.postDodgeBonus || cardDef.riposte) && player.recentDodgeTimer > 0) {
           hitMult *= 1.5;
@@ -308,18 +313,27 @@ export class CombatManager {
         this.particles.spawnDamageNumber(player.x, player.y - 30, 'HOT!');
       }
       const dmg = Math.round(cardDef.damage * dmgMult * cleaveMult);
+      const isColdZone = this.tempo.value < 30;
       let hitAny = false;
-      for (const e of this.enemies) {
-        if (!e.alive) continue;
-        const dx = e.x - player.x, dy = e.y - player.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < cardDef.range + e.r) {
-          // Reaper: instakill below 15% HP
-          const finalDmg = (cardDef.executeLow && e.hp / e.maxHp < 0.15) ? e.hp + 999 : dmg;
-          this.applyDamageToEnemy(e, finalDmg);
-          if (e.alive) e.stagger(0.15);
-          hitAny = true;
+      // Helper to do one pass of the cleave
+      const doCleavePass = () => {
+        for (const e of this.enemies) {
+          if (!e.alive) continue;
+          const dx = e.x - player.x, dy = e.y - player.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          if (d < cardDef.range + e.r) {
+            const finalDmg = (cardDef.executeLow && e.hp / e.maxHp < 0.15) ? e.hp + 999 : dmg;
+            this.applyDamageToEnemy(e, finalDmg);
+            if (e.alive) e.stagger(0.15);
+            hitAny = true;
+          }
         }
+      };
+      doCleavePass();
+      // Frost Reave: double hit in COLD zone
+      if (cardDef.coldDoubleHit && isColdZone) {
+        doCleavePass();
+        this.particles.spawnDamageNumber(player.x, player.y - 30, 'DOUBLE REAVE!');
       }
       let angle = Math.atan2(inputPos.y - player.y, inputPos.x - player.x);
       this.particles.spawnSlash(player.x, player.y, player.x + Math.cos(angle) * 80, player.y + Math.sin(angle) * 80, cardColor);
@@ -444,6 +458,19 @@ export class CombatManager {
         }
       }
 
+      // Glacial Press: in COLD zone, apply extra freeze + heal
+      if (cardDef.coldHeal && this.tempo.value < 30) {
+        for (const e of this.enemies) {
+          if (!e.alive) continue;
+          const dx = e.x - player.x, dy = e.y - player.y;
+          if (dx*dx + dy*dy < (cardDef.range + e.r) * (cardDef.range + e.r)) {
+            if (e.alive && cardDef.coldStagger) e.stagger(cardDef.coldStagger);
+          }
+        }
+        player.heal(cardDef.coldHeal);
+        this.particles.spawnDamageNumber(player.x, player.y - 30, 'COLD BLESSING!');
+      }
+
       // Also do stagger for frost_nova etc if not already done above
       if ((cardDef.id === 'frost_nova' || cardDef.id === 'iron_wall' || cardDef.id === 'thunder_clap' || cardDef.id === 'cold_wave') && !hitAny) {
         // already handled above in loop
@@ -490,10 +517,12 @@ export class CombatManager {
         piercingShot: cardDef.piercingShot || false,
       };
 
+      const life = cardDef.range / speed;
+
       if (count === 1) {
-        this.projectiles.spawn(player.x, player.y, dirX, dirY, speed, dmg, col, 'player', freezes, meta);
+        this.projectiles.spawn(player.x, player.y, dirX, dirY, speed, dmg, col, 'player', freezes, life, meta);
       } else {
-        this.projectiles.spawnSpread(player.x, player.y, inputPos.x, inputPos.y, count, spread, speed, dmg, col, 'player', freezes);
+        this.projectiles.spawnSpread(player.x, player.y, inputPos.x, inputPos.y, count, spread, speed, dmg, col, 'player', freezes, life);
       }
 
       // Visual feedback — small muzzle burst
