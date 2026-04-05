@@ -10,8 +10,12 @@ const DEFAULT_STATE = {
   totalWins: 0,
   bestFloor: 0,
   achievements: {},
-  // Leaderboard: top 10 scores
-  leaderboard: []
+  leaderboard: [],
+  perCharacterStats: {
+    blade:  { runs: 0, wins: 0, bestFloor: 0 },
+    frost:  { runs: 0, wins: 0, bestFloor: 0 },
+    shadow: { runs: 0, wins: 0, bestFloor: 0 },
+  }
 };
 
 export class MetaProgress {
@@ -81,6 +85,23 @@ export class MetaProgress {
     if (won) this.state.totalWins++;
     if (floor > this.state.bestFloor) this.state.bestFloor = floor;
     this.save();
+  }
+
+  recordCharRun(charId, won, floor) {
+    if (!this.state.perCharacterStats) this.state.perCharacterStats = {};
+    if (!this.state.perCharacterStats[charId]) {
+      this.state.perCharacterStats[charId] = { runs: 0, wins: 0, bestFloor: 0 };
+    }
+    const s = this.state.perCharacterStats[charId];
+    s.runs++;
+    if (won) s.wins++;
+    if (floor > s.bestFloor) s.bestFloor = floor;
+    this.save();
+  }
+
+  getCharStats(charId) {
+    return (this.state.perCharacterStats && this.state.perCharacterStats[charId])
+      || { runs: 0, wins: 0, bestFloor: 0 };
   }
 
   setAchievement(key) {

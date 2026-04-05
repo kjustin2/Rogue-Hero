@@ -2,7 +2,7 @@
 import { events } from './EventBus.js';
 
 class Projectile {
-  constructor(x, y, dx, dy, speed, damage, color, source) {
+  constructor(x, y, dx, dy, speed, damage, color, source, freezes) {
     this.x = x;
     this.y = y;
     this.dx = dx;
@@ -10,11 +10,15 @@ class Projectile {
     this.speed = speed || 260;
     this.damage = damage || 1;
     this.color = color || '#ff8800';
-    this.source = source || 'enemy'; // 'enemy' or 'boss'
+    this.source = source || 'enemy';
+    this.freezes = freezes || false;
     this.r = 5;
     this.alive = true;
     this.life = 3.0;
     this.trail = [];
+    this.nearMissTriggered = false;
+    this.pierceCount = 1; // how many enemies it can pass through
+    this.pierced = 0;
   }
 }
 
@@ -23,21 +27,24 @@ export class ProjectileManager {
     this.projectiles = [];
   }
 
-  spawn(x, y, dx, dy, speed, damage, color, source) {
-    this.projectiles.push(new Projectile(x, y, dx, dy, speed, damage, color, source));
+  spawn(x, y, dx, dy, speed, damage, color, source, freezes) {
+    this.projectiles.push(new Projectile(x, y, dx, dy, speed, damage, color, source, freezes));
   }
 
-  spawnSpread(x, y, targetX, targetY, count, spreadAngle, speed, damage, color, source) {
+  spawnSpread(x, y, targetX, targetY, count, spreadAngle, speed, damage, color, source, freezes) {
     const baseAngle = Math.atan2(targetY - y, targetX - x);
     for (let i = 0; i < count; i++) {
       const angle = baseAngle + (i - (count - 1) / 2) * spreadAngle;
-      this.spawn(x, y, Math.cos(angle), Math.sin(angle), speed, damage, color, source);
+      this.spawn(x, y, Math.cos(angle), Math.sin(angle), speed, damage, color, source, freezes);
     }
   }
 
   clear() {
     this.projectiles.length = 0;
   }
+
+  // enemies list must be set for player-shot collision
+  setEnemies(enemies) { this._enemies = enemies; }
 
   update(dt, player, room) {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
@@ -71,23 +78,38 @@ export class ProjectileManager {
         if (hitPillar) { this._remove(i); continue; }
       }
 
-      // Player collision (skip if dodging — i-frames)
-      if (player && player.alive && !player.dodging) {
+      // Player-shot hits enemies
+      if (p.source === 'player' && this._enemies) {
+        let hitEnemy = false;
+        for (const e of this._enemies) {
+          if (!e.alive) continue;
+          const dx = p.x - e.x, dy = p.y - e.y;
+          if (dx * dx + dy * dy < (p.r + e.r) * (p.r + e.r)) {
+            events.emit('PLAYER_SHOT_HIT', { enemy: e, damage: p.damage, freeze: p.freezes });
+            p.pierced++;
+            hitEnemy = p.pierced >= p.pierceCount;
+            break;
+          }
+        }
+        if (hitEnemy) { this._remove(i); continue; }
+      }
+
+      // Enemy/boss projectile hits player (skip if dodging — i-frames)
+      if (p.source !== 'player' && player && player.alive && !player.dodging) {
         const dx = p.x - player.x, dy = p.y - player.y;
         if (dx * dx + dy * dy < (p.r + player.r) * (p.r + player.r)) {
           events.emit('ENEMY_MELEE_HIT', { damage: p.damage, source: p });
-          // Track near-miss for perfect dodge (projectile was close while player dodged)
           this._remove(i);
           continue;
         }
       }
 
-      // Perfect dodge detection — projectile passed through player during i-frames
-      if (player && player.alive && player.dodging) {
+      // Perfect dodge detection — projectile passes through player during i-frames (once per projectile)
+      if (player && player.alive && player.dodging && !p.nearMissTriggered) {
         const dx = p.x - player.x, dy = p.y - player.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < p.r + player.r + 20) {
-          // Near miss — emit for perfect dodge system
+        if (dist < p.r + player.r + 22) {
+          p.nearMissTriggered = true;
           events.emit('NEAR_MISS_PROJECTILE', { x: p.x, y: p.y });
         }
       }

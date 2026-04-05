@@ -28,6 +28,12 @@ export class Player extends Entity {
 
   setClassPassives(passives) {
     this.classPassives = passives;
+    this._classPassives = passives;
+    // Vanguard 6 AP cap
+    if (passives && passives.maxAP) {
+      this.maxBudget = passives.maxAP;
+    }
+    // Vanguard: longer dodge cooldown applied via dodgeCooldown override
   }
 
   heal(amount) {
@@ -43,10 +49,15 @@ export class Player extends Entity {
     this.comboTimer -= dt;
     if (this.comboTimer <= 0) this.comboCount = 0;
 
-    // AP regen
-    this.budget = Math.min(this.budget + this.apRegen * dt, this.maxBudget);
+    // AP regen (Corruptor aura reduces by 60%)
+    const regenMult = this._corruptorAura ? 0.4 : 1.0;
+    this.budget = Math.min(this.budget + this.apRegen * regenMult * dt, this.maxBudget);
 
-    const spd = this.BASE_SPEED * tempo.speedMultiplier();
+    // Speed: base × tempo × War Cry boost × Timekeeper slow
+    let spdMult = tempo.speedMultiplier();
+    if (this._timekeeperAura) spdMult *= 0.45;
+    if (this.speedBoostTimer > 0) spdMult *= (this.speedBoostMult || 1.2);
+    const spd = this.BASE_SPEED * spdMult;
 
     // Dodge
     if (this.dodging) {
@@ -78,13 +89,14 @@ export class Player extends Entity {
 
       // Dodge trigger
       if ((input.consumeKey(' ') || input.consumeKey('shift')) && this.dodgeCooldown <= 0) {
-        // Can't dodge in Critical (90+) — unless Cold
-        if (tempo.value >= 90) {
-          // Dodge disabled at Critical
+        const fortifiedDodge = this.classPassives && this.classPassives.fortifiedDodge;
+        // Can't dodge in Critical (90+) unless Fortified Dodge
+        if (tempo.value >= 90 && !fortifiedDodge) {
+          events.emit('OVERLOADED', { x: this.x, y: this.y });
         } else {
           this.dodging = true;
           this.dodgeTimer = this.dodgeDuration;
-          this.dodgeCooldown = 0.3;
+          this.dodgeCooldown = (this.classPassives && this.classPassives.dodgeCooldown) || 0.3;
           // Perfect dodge window
           const basePerfWindow = 0.12;
           const windowMult = (this.classPassives && this.classPassives.perfectDodgeWindowMult) || 1.0;
@@ -122,9 +134,12 @@ export class Player extends Entity {
       events.emit('PLAYER_TRAIL', { x: this.x, y: this.y, color: tempo.stateColor() });
     }
 
-    // Room clamp
+    // Room clamp — cancel velocity in constrained direction to prevent wall-sliding
     if (roomMap) {
+      const prevX = this.x, prevY = this.y;
       const c = roomMap.clamp(this.x, this.y, this.r);
+      if (Math.abs(c.x - prevX) > 0.5) this.vx = 0;
+      if (Math.abs(c.y - prevY) > 0.5) this.vy = 0;
       this.x = c.x;
       this.y = c.y;
     }

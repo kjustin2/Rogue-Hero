@@ -21,7 +21,16 @@
       "Bash(grep -o \"Tempo\\\\.[a-zA-Z_]*\" /e/Storage/SAAS/Rogue-Hero/src/*.js)",
       "Bash(grep -o \"RunState\\\\.items\\\\.includes\\(''''[^'''']*''''\\)\" /e/Storage/SAAS/Rogue-Hero/src/*.js)",
       "Bash(grep -o \"Player\\\\.[a-zA-Z_]*\" /e/Storage/SAAS/Rogue-Hero/src/*.js)",
-      "Bash(node --check src/state.js src/tempo.js src/effects.js src/room.js src/enemies.js src/player.js src/ui.js src/main.js)"
+      "Bash(node --check src/state.js src/tempo.js src/effects.js src/room.js src/enemies.js src/player.js src/ui.js src/main.js)",
+      "Bash(node --input-type=module --experimental-vm-modules)",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('index.html'\\)\")",
+      "Bash(node -e ':*)",
+      "Bash(node --experimental-vm-modules -e ':*)",
+      "Bash(node --input-type=module --eval \"import\\('./src/DeckManager.js'\\).then\\(m => { const keys = Object.keys\\(m.CardDefinitions\\); console.log\\('Cards:', keys.length\\); const missing = keys.filter\\(k => !m.CardDefinitions[k].rarity\\); console.log\\('Missing rarity:', missing\\); }\\).catch\\(e => console.error\\(e\\)\\)\")",
+      "Bash(node --input-type=module --eval \"import\\('./src/Enemy.js'\\).then\\(m => console.log\\('Enemy exports:', Object.keys\\(m\\).join\\(', '\\)\\)\\).catch\\(e => console.error\\(e\\)\\)\")",
+      "Bash(node --input-type=module --eval \"import\\('./src/tempo.js'\\).then\\(m => { const t = new m.TempoSystem\\(\\); console.log\\('DECAY_RATE:', t.DECAY_RATE\\); }\\).catch\\(e => console.error\\(e\\)\\)\")",
+      "Bash(node --input-type=module --eval \"import\\('./src/Particles.js'\\).then\\(m => { const p = new m.ParticleSystem\\(\\); console.log\\('Has spawnRoomEntryFlash:', typeof p.spawnRoomEntryFlash, '| Has spawnCrashFlash:', typeof p.spawnCrashFlash\\); }\\).catch\\(e => console.error\\(e\\)\\)\")",
+      "Bash(node check-syntax.js)"
     ]
   },
   "prefersReducedMotion": true

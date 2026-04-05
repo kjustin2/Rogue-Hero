@@ -3,7 +3,7 @@ import { EventBus, events } from './EventBus.js';
 import { InputManager } from './Input.js';
 import { Renderer } from './Renderer.js';
 import { Player } from './player.js';
-import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, BossBrawler, BossConductor, BossEcho } from './Enemy.js';
+import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, Phantom, Blocker, Bomber, Marksman, BossBrawler, BossConductor, BossEcho, BossNecromancer, BossApex, Shrieker, Juggernaut, Stalker, Splitter, Split, Corruptor, BerserkerEnemy, RicochetDrone, Timekeeper } from './Enemy.js';
 import { TempoSystem } from './tempo.js';
 import { CombatManager } from './Combat.js';
 import { ParticleSystem } from './Particles.js';
@@ -41,13 +41,13 @@ const renderer = new Renderer(canvas);
 const tempo = new TempoSystem();
 const particles = new ParticleSystem();
 const audio = new AudioSynthesizer();
-const combat = new CombatManager(tempo, particles, audio);
+const projectiles = new ProjectileManager();
+const combat = new CombatManager(tempo, particles, audio, projectiles);
 const room = new RoomManager(canvas.width, canvas.height);
 const deckManager = new DeckManager();
 const runManager = new RunManager();
 const meta = new MetaProgress();
 const itemManager = new ItemManager();
-const projectiles = new ProjectileManager();
 console.log('[Init] All systems created. Cards:', Object.keys(CardDefinitions).length, 'Items:', Object.keys(ItemDefinitions).length);
 
 let player = new Player(400, 360);
@@ -68,7 +68,7 @@ let selectedCharId = null;
 let selectedDifficulty = 0;
 let totalHealedThisRun = 0;
 let newUnlocks = [];
-const FLOORS_TO_WIN = 3;
+const FLOORS_TO_WIN = 5;
 
 // Active card slot (left-click fires this, right-click cycles)
 let selectedCardSlot = 0;
@@ -88,6 +88,11 @@ let lastKillSlowTimer = 0;
 // Pause menu
 let pauseMenuBoxes = [];
 let prevStateBeforePause = null;
+let pauseQuitConfirm = false;
+
+// Discard state
+let discardPendingCardId = null;
+let discardReturnState = 'map';
 
 // Run stats
 let runStats = {
@@ -108,18 +113,49 @@ function resetRunStats() {
 }
 
 // ── Event Handlers ──────────────────────────────────────────────
+events.on('PLAYER_SHOT_HIT', ({ enemy, damage, freeze }) => {
+  if (!enemy.alive) return;
+  combat.applyDamageToEnemy(enemy, damage);
+  if (freeze && enemy.alive) enemy.stagger(1.2);
+});
+
 events.on('ENEMY_MELEE_HIT', ({ damage }) => {
   damage = Math.round(damage * (DIFFICULTY_MODS[selectedDifficulty]?.dmgMult || 1));
-  // Frost Cold damage reduction
   const passives = Characters[selectedCharId]?.passives;
+  // Frost Cold damage reduction
   if (passives?.coldDamageReduction && tempo.value < 30) {
     damage = Math.round(damage * (1 - passives.coldDamageReduction));
   }
+  // Vanguard Guard stack damage reduction
+  if (passives?.ironGuard && player.guardStacks > 0) {
+    const reduction = Math.min(damage, passives.guardDamageReduction || 2);
+    damage = Math.max(0, damage - reduction);
+    player.guardStacks--;
+    player._guardDecayTimer = 0;
+    particles.spawnDamageNumber(player.x, player.y - 20, 'GUARD');
+  }
   player.takeDamage(damage);
+  // Vanguard: build guard stack on hit
+  if (passives?.ironGuard && damage > 0) {
+    if (player.guardStacks === undefined) player.guardStacks = 0;
+    player.guardStacks = Math.min(player.guardStacks + 1, passives.maxGuardStacks || 4);
+    player._guardDecayTimer = 0;
+  }
+  // DAMAGE_TAKEN is emitted by player.takeDamage() for Frost passive
   particles.spawnKillFlash('#ff2222');
   events.emit('HIT_STOP', 0.08);
   events.emit('SCREEN_SHAKE', { duration: 0.2, intensity: 0.4 });
   if (!player.alive) {
+    // Wraith Undying: first death per room revives at 1 HP + crash
+    if (passives?.undying && !player._undyingUsed) {
+      player._undyingUsed = true;
+      player.hp = 1;
+      player.alive = true;
+      tempo._triggerAccidentalCrash();
+      particles.spawnCrashFlash();
+      particles.spawnDamageNumber(player.x, player.y - 40, 'UNDYING!');
+      return;
+    }
     // Last Rites check
     if (itemManager.onDeath(tempo.value, player)) {
       console.log('[Items] Last Rites triggered — revived!');
@@ -133,9 +169,10 @@ events.on('ENEMY_MELEE_HIT', ({ damage }) => {
   }
 });
 
-events.on('REQUEST_PLAYER_POS_CRASH', ({ radius, dmg }) => {
+events.on('REQUEST_PLAYER_POS_CRASH', ({ radius, dmg, accidental }) => {
   events.emit('CRASH_ATTACK', { x: player.x, y: player.y, radius, dmg });
-  runStats.manualCrashes++;
+  if (!accidental) runStats.manualCrashes++;
+  events.emit('CRASH_TEXT', { dmg });
 });
 
 events.on('KILL', () => { runStats.kills++; });
@@ -161,6 +198,7 @@ events.on('LAST_KILL', ({ x, y }) => {
   lastKillSlowTimer = 0.4;
   particles.spawnLastKill();
   particles.spawnRoomClear();
+  events.emit('SCREEN_SHAKE', { duration: 0.35, intensity: 0.55 });
 });
 
 events.on('SLOW_MO', ({ dur, scale }) => {
@@ -176,6 +214,51 @@ events.on('DRAIN', () => {
   particles.spawnDamageNumber(player.x, player.y - 20, '-20 TEMPO');
 });
 
+events.on('OVERLOADED', ({ x, y }) => {
+  particles.spawnOverloaded(x, y);
+  events.emit('PLAY_SOUND', 'miss');
+});
+
+events.on('CRASH_TEXT', ({ dmg }) => {
+  particles.spawnCrashText(dmg);
+  particles.spawnCrashFlash();
+});
+
+events.on('SPLITTER_DIED', ({ x, y, difficultySpdMult }) => {
+  const offsets = [[30, 0], [-30, 0]];
+  for (const [ox, oy] of offsets) {
+    const s = new Split(x + ox, y + oy);
+    s.difficultySpdMult = difficultySpdMult;
+    enemies.push(s);
+  }
+  combat.setLists(enemies, player);
+  projectiles.setEnemies(enemies);
+  ui.setEnemies(enemies);
+});
+
+events.on('COLD_CRASH', ({ radius, freezeDur }) => {
+  // Freeze all enemies in radius around player
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const dx = e.x - player.x, dy = e.y - player.y;
+    if (dx * dx + dy * dy < (radius + e.r) * (radius + e.r)) {
+      e.stagger(freezeDur);
+    }
+  }
+  // Brief player invincibility
+  player.dodging = true;
+  player.dodgeTimer = 0.5;
+  player.dodgeCooldown = Math.max(player.dodgeCooldown, 0.5);
+  particles.spawnColdCrashFlash();
+  particles.spawnRing && particles.spawnRing(player.x, player.y, radius, '#66ccff');
+  particles.spawnDamageNumber(player.x, player.y - 40, 'COLD CRASH!');
+});
+
+events.on('COMBO_DISPLAY', ({ count, x, y }) => {
+  particles.spawnComboDisplay(count, x, y);
+  if (count > (runStats.highestCombo || 0)) runStats.highestCombo = count;
+});
+
 // ── Helpers ─────────────────────────────────────────────────────
 function startNewRun() {
   const charDef = Characters[selectedCharId];
@@ -186,8 +269,20 @@ function startNewRun() {
   player.BASE_SPEED = charDef.baseSpeed;
   player.setClassPassives(charDef.passives);
 
-  deckManager.initDeck(charDef.startingDeck);
+  // Seed must be set before any RNG calls
+  runManager.floor = 1;
+  runManager.setSeed(Date.now());
+
+  // Pick 3 random starting cards from the pool using the run seed
+  const pool = [...(charDef.startingPool || charDef.startingDeck || [])];
+  const startRng = runManager.getRng();
+  for (let i = pool.length - 1; i > 0; i--) {
+    const j = Math.floor(startRng() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  deckManager.initDeck(pool.slice(0, 3));
   tempo.value = 50;
+  tempo.targetValue = 50;
   tempo.setClassPassives(charDef.passives);
   itemManager.reset();
   projectiles.clear();
@@ -198,9 +293,9 @@ function startNewRun() {
   slowMoTimer = 0;
   slowMoScale = 1.0;
   lastKillSlowTimer = 0;
+  ui.prepPendingCard = null;
+  ui.showInventory = false;
 
-  runManager.floor = 1;
-  runManager.setSeed(Date.now());
   runManager.generateMap();
   resetRunStats();
 
@@ -232,50 +327,95 @@ function spawnEnemies(node) {
       enemies.push(new BossConductor(cx, cy - 50));
       enemies.push(new ShieldDrone(cx - 100, cy + 60));
       enemies.push(new ShieldDrone(cx + 100, cy + 60));
-    } else {
+    } else if (f === 3) {
       enemies.push(new BossEcho(cx, cy));
+    } else if (f === 4) {
+      enemies.push(new BossNecromancer(cx, cy - 50));
+      enemies.push(new Phantom(cx - 120, cy + 60));
+      enemies.push(new Phantom(cx + 120, cy + 60));
+    } else {
+      enemies.push(new BossApex(cx, cy));
+      enemies.push(new Blocker(cx - 160, cy));
+      enemies.push(new Marksman(cx + 160, cy));
     }
   } else if (node.type === 'elite') {
-    enemies.push(new Bruiser(cx + 60, cy));
-    const extra = 1 + Math.floor(f * 0.6);
-    for (let i = 0; i < extra; i++) enemies.push(new Chaser(rndX(), rndY()));
+    const eliteRoll = rng();
+    if (f >= 3 && eliteRoll < 0.35) enemies.push(new Juggernaut(cx + 60, cy));
+    else enemies.push(new Bruiser(cx + 60, cy));
+    const extra = 1 + Math.floor(f * 0.5);
+    for (let i = 0; i < extra; i++) {
+      if (f >= 4) enemies.push(rng() < 0.5 ? new Phantom(rndX(), rndY()) : new Blocker(rndX(), rndY()));
+      else if (f >= 2) enemies.push(rng() < 0.4 ? new BerserkerEnemy(rndX(), rndY()) : new Chaser(rndX(), rndY()));
+      else enemies.push(new Chaser(rndX(), rndY()));
+    }
+    if (f >= 1 && rng() < 0.5) enemies.push(new Shrieker(rndX(), rndY()));
     if (f >= 2) enemies.push(new Healer(rndX(), rndY()));
-    if (rng() < 0.3) enemies.push(new TempoVampire(rndX(), rndY()));
+    if (f >= 3 && rng() < 0.4) enemies.push(new TempoVampire(rndX(), rndY()));
+    if (f >= 3 && rng() < 0.4) enemies.push(new Timekeeper(rndX(), rndY()));
+    if (f >= 4 && rng() < 0.5) enemies.push(new Bomber(rndX(), rndY()));
+    if (f >= 4 && rng() < 0.4) enemies.push(new Corruptor(rndX(), rndY()));
   } else {
-    const count = 2 + Math.floor(f * 0.8) + Math.floor(rng() * 2);
+    const count = 2 + Math.floor(f * 0.7) + Math.floor(rng() * 2);
     for (let i = 0; i < count; i++) {
       const roll = rng();
-      if (f >= 3 && roll < 0.06) enemies.push(new Mirror(rndX(), rndY()));
-      else if (f >= 2 && roll < 0.12) enemies.push(new Teleporter(rndX(), rndY()));
-      else if (roll < 0.18) enemies.push(new TempoVampire(rndX(), rndY()));
-      else if (roll < 0.25) enemies.push(new ShieldDrone(rndX(), rndY()));
-      else if (roll < 0.32) enemies.push(new Healer(rndX(), rndY()));
-      else if (roll < 0.42) enemies.push(new Turret(rndX(), rndY()));
-      else if (roll < 0.52) {
+      if (f >= 5 && roll < 0.06) enemies.push(new Phantom(rndX(), rndY()));
+      else if (f >= 5 && roll < 0.10) enemies.push(new Blocker(rndX(), rndY()));
+      else if (f >= 4 && roll < 0.14) enemies.push(new Corruptor(rndX(), rndY()));
+      else if (f >= 4 && roll < 0.18) enemies.push(new Marksman(rndX(), rndY()));
+      else if (f >= 4 && roll < 0.22) enemies.push(new Bomber(rndX(), rndY()));
+      else if (f >= 3 && roll < 0.26) enemies.push(new Timekeeper(rndX(), rndY()));
+      else if (f >= 3 && roll < 0.30) enemies.push(new BerserkerEnemy(rndX(), rndY()));
+      else if (f >= 3 && roll < 0.34) enemies.push(new Mirror(rndX(), rndY()));
+      else if (f >= 2 && roll < 0.38) enemies.push(new Stalker(rndX(), rndY()));
+      else if (f >= 2 && roll < 0.42) enemies.push(new RicochetDrone(rndX(), rndY()));
+      else if (f >= 2 && roll < 0.46) enemies.push(new Teleporter(rndX(), rndY()));
+      else if (f >= 1 && roll < 0.50) enemies.push(new Shrieker(rndX(), rndY()));
+      else if (f >= 1 && roll < 0.54) enemies.push(new Splitter(rndX(), rndY()));
+      else if (roll < 0.58) enemies.push(new TempoVampire(rndX(), rndY()));
+      else if (roll < 0.63) enemies.push(new ShieldDrone(rndX(), rndY()));
+      else if (roll < 0.68) enemies.push(new Healer(rndX(), rndY()));
+      else if (roll < 0.74) enemies.push(new Turret(rndX(), rndY()));
+      else if (roll < 0.82) {
         const sx = rndX(), sy = rndY();
         enemies.push(new Swarm(sx, sy));
         enemies.push(new Swarm(sx + 20, sy + 15));
         enemies.push(new Swarm(sx - 15, sy + 20));
         i += 2;
       }
-      else if (roll < 0.72) enemies.push(new Sniper(rndX(), rndY()));
+      else if (roll < 0.91) enemies.push(new Sniper(rndX(), rndY()));
       else enemies.push(new Chaser(rndX(), rndY()));
     }
   }
 
+  // Per-act ramp on top of difficulty mods
+  const actHpRamp  = f >= 5 ? 1.5 : (f >= 4 ? 1.2 : 1.0);
+  const actSpdRamp = f >= 5 ? 1.2 : (f >= 4 ? 1.1 : 1.0);
+  const telegraphMult = f >= 5 ? 0.7 : (f >= 4 ? 0.82 : 1.0);
   for (const e of enemies) {
-    e.hp = Math.round(e.hp * (1 + (f - 1) * 0.25) * diff.hpMult);
+    e.hp = Math.round(e.hp * (1 + (f - 1) * 0.25) * diff.hpMult * actHpRamp);
     e.maxHp = e.hp;
-    e.difficultySpdMult = diff.spdMult || 1.0;
+    e.difficultySpdMult = (diff.spdMult || 1.0) * actSpdRamp;
+    if (f >= 4) e.telegraphDuration = Math.max(0.25, e.telegraphDuration * telegraphMult);
   }
 
   // Set starting tempo from items
   tempo.value = itemManager.startingTempo();
+  tempo.targetValue = tempo.value;
   itemManager.resetRoom();
   projectiles.clear();
+  particles.particles.length = 0;
+  particles.visuals.length = 0;
+  // Keep screen effects — room clear banner looks good
+  player.comboCount = 0;
+  player.comboTimer = 0;
 
   combat.setLists(enemies, player);
   ui.setEnemies(enemies);
+  projectiles.setEnemies(enemies);
+  // Reset per-room passives
+  player._undyingUsed = false;
+  player.guardStacks = 0;
+  player._guardDecayTimer = 0;
   
   if (node.type === 'boss') {
     audio.playBGM('boss');
@@ -305,42 +445,69 @@ function generateDraft() {
   return true;
 }
 
+function tryAddCard(cardId, onSuccess) {
+  const result = deckManager.addCard(cardId);
+  if (result === 'full') {
+    discardPendingCardId = cardId;
+    discardReturnState = 'afterDiscard';
+    gameState = 'discard';
+    // Store callback as pending return action
+    window._discardCallback = onSuccess;
+    return false;
+  }
+  if (onSuccess) onSuccess();
+  return true;
+}
+
 function pickDraft(idx) {
   if (idx >= draftChoices.length) return;
-  deckManager.addCard(draftChoices[idx]);
-  console.log(`[Draft] Picked "${draftChoices[idx]}"`);
-  // After draft — offer item reward every other room, upgrade every 3 rooms
-  if (roomsCleared % 2 === 0) {
-    itemChoices = itemManager.generateChoices(3);
-    if (itemChoices.length > 0) { gameState = 'itemReward'; return; }
-  }
-  if (roomsCleared > 0 && roomsCleared % 3 === 0) {
-    upgradeChoices = deckManager.getUpgradeChoices();
-    if (upgradeChoices.length > 0) { gameState = 'upgrade'; return; }
-  }
-  gameState = 'map';
+  const cardId = draftChoices[idx];
+  console.log(`[Draft] Picked "${cardId}"`);
+  tryAddCard(cardId, () => {
+    // After draft — offer item reward every other room, upgrade every 3 rooms
+    if (roomsCleared % 2 === 0) {
+      itemChoices = itemManager.generateChoices(3);
+      if (itemChoices.length > 0) { gameState = 'itemReward'; return; }
+    }
+    if (roomsCleared > 0 && roomsCleared % 3 === 0) {
+      upgradeChoices = deckManager.getUpgradeChoices();
+      if (upgradeChoices.length > 0) { gameState = 'upgrade'; return; }
+    }
+    gameState = 'map';
+  });
 }
 
 function checkRunUnlocks(won) {
   meta.recordRun(won, runManager.floor);
+  meta.recordCharRun(selectedCharId, won, runManager.floor);
   newUnlocks = [];
   if (runManager.floor >= 2 && meta.unlockCharacter('shadow')) {
-    newUnlocks.push('🗡️ Unlocked character: SHADOW');
+    newUnlocks.push('Unlocked character: SHADOW');
   }
   if (totalHealedThisRun >= 10 && meta.unlockCharacter('frost')) {
-    newUnlocks.push('❄️ Unlocked character: FROST');
+    newUnlocks.push('Unlocked character: FROST');
+  }
+  if (runManager.floor >= 3 && meta.unlockCharacter('echo')) {
+    newUnlocks.push('Unlocked character: ECHO');
+  }
+  if (won && meta.unlockCharacter('wraith')) {
+    newUnlocks.push('Unlocked character: WRAITH');
+  }
+  if (won && selectedDifficulty >= 1 && meta.unlockCharacter('vanguard')) {
+    newUnlocks.push('Unlocked character: VANGUARD');
   }
   if (won) {
     const currentMax = meta.getMaxDifficulty(selectedCharId);
     if (selectedDifficulty >= currentMax && currentMax < 2) {
       meta.unlockDifficulty(selectedCharId, currentMax + 1);
-      newUnlocks.push(`⚔️ Unlocked ${DIFFICULTY_NAMES[currentMax + 1]} difficulty for ${Characters[selectedCharId].name}`);
+      newUnlocks.push(`Unlocked ${DIFFICULTY_NAMES[currentMax + 1]} difficulty for ${Characters[selectedCharId].name}`);
     }
-    const bonusPool = ['chain_lightning', 'thunder_clap', 'phantom_step', 'blood_pact', 'iron_wall', 'execute', 'tempo_surge', 'shadow_mark'];
+    const bonusPool = ['chain_lightning', 'thunder_clap', 'phantom_step', 'blood_pact', 'iron_wall', 'execute', 'tempo_surge', 'shadow_mark', 'second_wind', 'adrenaline', 'smoke_screen', 'glass_cannon', 'reaper',
+      'earthshaker', 'death_blow', 'berserkers_oath', 'last_stand', 'mirror_strike', 'deaths_bargain', 'resonant_pulse', 'snipers_mark', 'leech_field', 'soul_drain', 'marked_for_death'];
     for (const cid of bonusPool) {
       if (!meta.isBonusCardUnlocked(cid)) {
         meta.unlockBonusCard(cid);
-        newUnlocks.push(`🃏 Unlocked card: ${CardDefinitions[cid].name}`);
+        newUnlocks.push(`Unlocked card: ${CardDefinitions[cid].name}`);
         break;
       }
     }
@@ -463,7 +630,21 @@ function update(logicDt, realDt) {
 
   // ── MAP ──
   if (gameState === 'map') {
+    if (input.consumeKey('i') || input.consumeKey('I')) {
+      ui.showInventory = !ui.showInventory;
+    }
+    if (input.consumeKey('escape')) {
+      if (ui.showInventory) {
+        ui.showInventory = false;
+      } else {
+        prevStateBeforePause = 'map';
+        gameState = 'paused';
+      }
+      input.clearFrame();
+      return;
+    }
     if (input.consumeClick()) {
+      if (ui.showInventory) { /* clicks fall through to overlay dismiss */ }
       const node = runManager.handleMapClick(input.mouse.x, input.mouse.y, canvas.width, canvas.height);
       if (node) {
         console.log(`[Map] Node "${node.id}" type="${node.type}"`);
@@ -504,15 +685,20 @@ function update(logicDt, realDt) {
   // ── PAUSED ──
   if (gameState === 'paused') {
     if (input.consumeKey('escape')) {
-      gameState = prevStateBeforePause || 'playing';
+      if (pauseQuitConfirm) { pauseQuitConfirm = false; }
+      else { gameState = prevStateBeforePause || 'playing'; }
     }
     if (input.consumeClick()) {
       const mx = input.mouse.x, my = input.mouse.y;
       for (const b of pauseMenuBoxes) {
         if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-          if (b.action === 'resume') gameState = prevStateBeforePause || 'playing';
-          else if (b.action === 'restart') { gameState = 'charSelect'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
-          else if (b.action === 'quit') { gameState = 'intro'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
+          if (b.action === 'resume') { pauseQuitConfirm = false; gameState = prevStateBeforePause || 'playing'; }
+          else if (b.action === 'restart') { pauseQuitConfirm = false; gameState = 'charSelect'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
+          else if (b.action === 'quit') {
+            if (pauseQuitConfirm) { pauseQuitConfirm = false; gameState = 'intro'; selectedCharId = null; audio.silenceMusic(); audio.playBGM('menu'); }
+            else { pauseQuitConfirm = true; }
+          }
+          else if (b.action === 'quit_cancel') { pauseQuitConfirm = false; }
           break;
         }
       }
@@ -523,6 +709,7 @@ function update(logicDt, realDt) {
 
   // ── EVENT ──
   if (gameState === 'event') {
+    if (input.consumeKey('escape')) { gameState = 'map'; input.clearFrame(); return; }
     for (let i = 0; i < 3; i++) {
       if (input.consumeKey((i + 1).toString())) { handleEvent(i); break; }
     }
@@ -536,14 +723,44 @@ function update(logicDt, realDt) {
 
   // ── SHOP ──
   if (gameState === 'shop') {
-    if (input.consumeKey('enter')) { gameState = 'map'; }
+    if (input.consumeKey('escape') || input.consumeKey('enter')) { gameState = 'map'; input.clearFrame(); return; }
     if (input.consumeClick()) {
       const cardId = ui.handleShopClick(input.mouse.x, input.mouse.y);
       if (cardId && player.hp > 1) {
         player.hp--;
-        deckManager.addCard(cardId);
-        shopCards = shopCards.filter(c => c !== cardId);
+        const addResult = deckManager.addCard(cardId);
+        if (addResult === 'full') {
+          discardPendingCardId = cardId;
+          discardReturnState = 'shop_done';
+          gameState = 'discard';
+        } else {
+          shopCards = shopCards.filter(c => c !== cardId);
+          events.emit('PLAY_SOUND', 'itemPickup');
+        }
+      }
+    }
+    input.clearFrame();
+    return;
+  }
+
+  // ── DISCARD ──
+  if (gameState === 'discard') {
+    if (input.consumeClick()) {
+      const discardId = ui.handleDiscardClick(input.mouse.x, input.mouse.y);
+      if (discardId && discardPendingCardId) {
+        deckManager.removeCard(discardId);
+        deckManager.addCard(discardPendingCardId);
         events.emit('PLAY_SOUND', 'itemPickup');
+        console.log(`[Deck] Discarded "${discardId}", added "${discardPendingCardId}"`);
+        if (window._discardCallback) {
+          const cb = window._discardCallback;
+          window._discardCallback = null;
+          discardPendingCardId = null;
+          cb();
+        } else {
+          discardPendingCardId = null;
+          gameState = 'map';
+        }
       }
     }
     input.clearFrame();
@@ -552,7 +769,7 @@ function update(logicDt, realDt) {
 
   // ── ITEM REWARD ──
   if (gameState === 'itemReward') {
-    if (input.consumeKey(' ')) { gameState = 'map'; }
+    if (input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
     if (input.consumeClick()) {
       const itemId = ui.handleItemClick(input.mouse.x, input.mouse.y);
       if (itemId) {
@@ -573,7 +790,7 @@ function update(logicDt, realDt) {
 
   // ── UPGRADE ──
   if (gameState === 'upgrade') {
-    if (input.consumeKey(' ')) { gameState = 'map'; }
+    if (input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
     if (input.consumeClick()) {
       const cardId = ui.handleUpgradeClick(input.mouse.x, input.mouse.y);
       if (cardId) {
@@ -603,6 +820,7 @@ function update(logicDt, realDt) {
   if (gameState === 'prep') {
     if (input.consumeKey('enter')) {
       console.log(`[Prep] Hand: [${deckManager.hand.join(', ')}]`);
+      particles.spawnRoomEntryFlash();
       gameState = 'playing';
     }
     if (input.consumeClick()) ui.handlePrepClick(input.mouse.x, input.mouse.y);
@@ -614,6 +832,7 @@ function update(logicDt, realDt) {
   // ESC → pause menu
   if (input.consumeKey('escape')) {
     prevStateBeforePause = 'playing';
+    pauseQuitConfirm = false;
     gameState = 'paused';
     input.clearFrame();
     return;
@@ -649,24 +868,69 @@ function update(logicDt, realDt) {
     }
   }
 
-  // Manual Tempo Crash (F key)
-  if (input.consumeKey('f')) {
-    if (tempo.manualCrash({ x: player.x, y: player.y })) {
-      runStats.manualCrashes++;
-    }
-  }
-
   player.updateLogic(logicDt, input, tempo, room);
+  ui.setMouse(input.mouse.x, input.mouse.y);
 
   // Hot dash-attack check
   combat.checkDashAttack(player, tempo.value);
 
+  // Track recent dodge for counter_slash / riposte
+  if (player.recentDodgeTimer === undefined) player.recentDodgeTimer = 0;
+  if (player.dodging) player.recentDodgeTimer = 0.5;
+  else player.recentDodgeTimer = Math.max(0, player.recentDodgeTimer - logicDt);
+
+  // Speed boost timer (War Cry)
+  if (player.speedBoostTimer > 0) {
+    player.speedBoostTimer = Math.max(0, player.speedBoostTimer - logicDt);
+  }
+
+  // Aura effects from Corruptor and Timekeeper
+  let inCorruptorAura = false;
+  let inTimekeeperAura = false;
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    if (e.type === 'corruptor' && e.isPlayerInAura && e.isPlayerInAura(player)) inCorruptorAura = true;
+    if (e.type === 'timekeeper' && e.isPlayerInAura && e.isPlayerInAura(player)) inTimekeeperAura = true;
+  }
+  player._corruptorAura = inCorruptorAura;
+  player._timekeeperAura = inTimekeeperAura;
+
+  // Vanguard Guard stack decay
+  if (Characters[selectedCharId]?.passives?.ironGuard) {
+    if (player.guardStacks === undefined) player.guardStacks = 0;
+    player._guardDecayTimer = (player._guardDecayTimer || 0) + logicDt;
+    if (player._guardDecayTimer >= 3.0 && player.guardStacks > 0) {
+      player.guardStacks--;
+      player._guardDecayTimer = 0;
+    }
+  }
+
   // Update enemies — pass projectile manager
   for (let i = enemies.length - 1; i >= 0; i--) {
-    enemies[i].updateLogic(logicDt, player, tempo, room, enemies, projectiles);
-    if (!enemies[i].alive) {
+    const e = enemies[i];
+    // Bleed tick
+    if (e.bleedTimer > 0) {
+      e.bleedTimer -= logicDt;
+      e._bleedTick = (e._bleedTick || 0) + logicDt;
+      if (e._bleedTick >= 1.0) {
+        e._bleedTick -= 1.0;
+        e.takeDamage(e.bleedDmg || 3);
+        particles.spawnDamageNumber(e.x, e.y - 10, e.bleedDmg || 3);
+        if (!e.alive) {
+          itemManager.onKill(tempo.value, player);
+          if (e.type && e.type.startsWith('boss')) itemManager.onBossKill(player);
+          enemies[i] = enemies[enemies.length - 1];
+          enemies.pop();
+          continue;
+        }
+      }
+    }
+    e.updateLogic(logicDt, player, tempo, room, enemies, projectiles);
+    if (!e.alive) {
       // Item on-kill effects
       itemManager.onKill(tempo.value, player);
+      if (e.type && e.type.startsWith('boss')) itemManager.onBossKill(player);
+      // Splitter: spawn splits (updateLogic already did it — just verify)
       enemies[i] = enemies[enemies.length - 1];
       enemies.pop();
     }
@@ -736,28 +1000,45 @@ function render() {
   // ── INTRO ──
   if (gameState === 'intro') {
     const ctx = renderer.ctx;
-    ctx.fillStyle = '#0a0a12';
+
+    // Gradient background
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    bgGrad.addColorStop(0, '#06060e');
+    bgGrad.addColorStop(1, '#0d0a1a');
+    ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 58px monospace';
+    // Title glow
+    ctx.save();
+    ctx.shadowColor = '#4466ff';
+    ctx.shadowBlur = 40;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 62px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('ROGUE HERO', canvas.width / 2, 120);
+    ctx.fillText('ROGUE HERO', canvas.width / 2, 112);
+    ctx.restore();
 
+    // Subtitle bar
+    ctx.fillStyle = 'rgba(68,170,255,0.12)';
+    ctx.fillRect(canvas.width / 2 - 240, 122, 480, 2);
     ctx.fillStyle = '#44aaff';
-    ctx.font = '16px monospace';
-    ctx.fillText('A Tempo-Driven Roguelike Deck Builder', canvas.width / 2, 160);
+    ctx.font = '15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('A Tempo-Driven Roguelike Deck Builder', canvas.width / 2, 148);
 
-    const bx = 200, by = 200, bw = canvas.width - 400, bh = 400;
-    ctx.fillStyle = '#111118';
-    ctx.fillRect(bx, by, bw, bh);
-    ctx.strokeStyle = '#334';
+    const bx = 180, by = 172, bw = canvas.width - 360, bh = 420;
+    ctx.fillStyle = 'rgba(12,12,20,0.95)';
+    ctx.beginPath();
+    ctx.roundRect(bx, by, bw, bh, 12);
+    ctx.fill();
+    ctx.strokeStyle = '#1e2044';
     ctx.lineWidth = 2;
-    ctx.strokeRect(bx, by, bw, bh);
+    ctx.stroke();
 
     ctx.fillStyle = '#ffdd44';
-    ctx.font = 'bold 20px monospace';
-    ctx.fillText('HOW TO PLAY', canvas.width / 2, by + 35);
+    ctx.font = 'bold 18px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('HOW TO PLAY', canvas.width / 2, by + 32);
 
     ctx.fillStyle = '#ccc';
     ctx.font = '13px monospace';
@@ -766,17 +1047,17 @@ function render() {
       '◆ WASD/Arrows to move, SPACE to dodge towards mouse (no AP cost)',
       '◆ LEFT CLICK to attack with your selected card',
       '◆ RIGHT CLICK to cycle between equipped cards (or press 1-4)',
-      '◆ F key: Manual Tempo Crash at 85+ Tempo (huge AoE burst)',
       '',
       '◆ THE TEMPO BAR (top center) controls your power:',
-      '    COLD (<30)     = 0.7x damage, safe dodges, stagger enemies',
+      '    COLD (<30)     = 0.7x damage — overfill to 0 → ICE CRASH: massive freeze AoE!',
       '    FLOWING (30-70) = 1.0x damage, balanced play',
       '    HOT (70-90)     = 1.3x damage, 1.2x speed, dash-attack deals damage!',
-      '    CRITICAL (90+)  = 1.8x damage, attacks PIERCE, but auto-crash risk!',
+      '    CRITICAL (90+)  = 1.8x damage, attacks PIERCE — overfill to 100 → auto CRASH!',
       '',
       '◆ Perfect Dodge: dodge just as an attack lands → slow-mo + tempo boost',
       '◆ ESC key: Open pause menu during combat',
-      `◆ Clear ${FLOORS_TO_WIN} floors (each ending in a unique boss) to WIN`,
+      `◆ Clear ${FLOORS_TO_WIN} acts (each ending in a unique boss) to WIN`,
+      `◆ On the map screen, press [I] to view your cards & relics`,
       '◆ Collect relics, upgrade cards, unlock new characters & difficulties',
     ];
     for (let i = 0; i < lines.length; i++) {
@@ -804,15 +1085,27 @@ function render() {
   // ── CHARACTER SELECT ──
   if (gameState === 'charSelect') {
     const ctx = renderer.ctx;
-    ctx.fillStyle = '#0a0a12';
+
+    // Gradient background
+    const bgGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    bgGrad.addColorStop(0, '#070710');
+    bgGrad.addColorStop(1, '#0d0c1c');
+    ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 36px monospace';
+    ctx.save();
+    ctx.shadowColor = '#8866ff';
+    ctx.shadowBlur = 30;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 38px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CHOOSE YOUR HERO', canvas.width / 2, 60);
+    ctx.fillText('CHOOSE YOUR HERO', canvas.width / 2, 58);
+    ctx.restore();
 
-    ctx.fillStyle = '#666';
+    ctx.fillStyle = 'rgba(136,102,255,0.15)';
+    ctx.fillRect(canvas.width / 2 - 200, 66, 400, 2);
+
+    ctx.fillStyle = '#555577';
     ctx.font = '12px monospace';
     ctx.fillText(`Runs: ${meta.state.totalRuns}  |  Wins: ${meta.state.totalWins}  |  Best Floor: ${meta.state.bestFloor}`, canvas.width / 2, 90);
 
@@ -850,46 +1143,61 @@ function render() {
       ctx.stroke();
 
       if (!unlocked) {
-        ctx.fillStyle = '#444';
+        ctx.fillStyle = '#333';
+        ctx.fillRect(x, startY, CARD_W, CARD_H);
+        ctx.fillStyle = '#555';
         ctx.font = 'bold 18px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('🔒 LOCKED', x + CARD_W / 2, startY + CARD_H / 2 - 10);
-        ctx.fillStyle = '#555';
+        ctx.fillText('LOCKED', x + CARD_W / 2, startY + CARD_H / 2 - 16);
+        ctx.fillStyle = '#ff6644';
+        ctx.font = 'bold 12px monospace';
+        ctx.fillText(ch.name, x + CARD_W / 2, startY + CARD_H / 2 + 10);
+        ctx.fillStyle = '#888';
         ctx.font = '11px monospace';
-        const cond = ch.unlockCondition === 'reach_floor_2' ? 'Reach Floor 2 in any run' : 'Heal 10+ HP in a single run';
-        ctx.fillText(cond, x + CARD_W / 2, startY + CARD_H / 2 + 15);
+        const cond = ch.unlockConditionText || 'Complete a run to unlock';
+        ui._wrapText(ctx, cond, x + 15, startY + CARD_H / 2 + 28, CARD_W - 30, 15);
       } else {
+        const charStats = meta.getCharStats(ch.id);
         ctx.fillStyle = ch.color;
         ctx.font = 'bold 28px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(ch.name, x + CARD_W / 2, startY + 40);
         ctx.fillStyle = '#aaa';
         ctx.font = '14px monospace';
-        ctx.fillText(ch.title, x + CARD_W / 2, startY + 65);
+        ctx.fillText(ch.title, x + CARD_W / 2, startY + 62);
         ctx.fillStyle = '#888';
-        ctx.font = '12px monospace';
-        ui._wrapText(ctx, ch.description, x + 15, startY + 95, CARD_W - 30, 16);
+        ctx.font = '11px monospace';
+        ui._wrapText(ctx, ch.description, x + 15, startY + 82, CARD_W - 30, 15);
         ctx.fillStyle = '#ee4444';
-        ctx.fillText(`♥ ${ch.hp} HP`, x + CARD_W / 4, startY + 170);
+        ctx.fillText(`♥ ${ch.hp} HP`, x + CARD_W / 4, startY + 155);
         ctx.fillStyle = '#44aaff';
-        ctx.fillText(`⚡ ${ch.apRegen}/s AP`, x + CARD_W * 3 / 4, startY + 170);
+        ctx.fillText(`⚡ ${ch.apRegen}/s AP`, x + CARD_W * 3 / 4, startY + 155);
         ctx.fillStyle = '#44ff88';
-        ctx.fillText(`💨 ${ch.baseSpeed} SPD`, x + CARD_W / 2, startY + 190);
+        ctx.fillText(`💨 ${ch.baseSpeed} SPD`, x + CARD_W / 2, startY + 172);
+        // Starting pool preview (3 random from pool of 6)
         ctx.fillStyle = '#ffdd44';
         ctx.font = 'bold 11px monospace';
-        ctx.fillText('STARTING DECK:', x + CARD_W / 2, startY + 215);
+        ctx.fillText('CARD POOL (3 random):', x + CARD_W / 2, startY + 196);
         ctx.fillStyle = '#ccc';
-        ctx.font = '11px monospace';
-        for (let j = 0; j < ch.startingDeck.length; j++) {
-          const cd = CardDefinitions[ch.startingDeck[j]];
-          if (cd) ctx.fillText(`• ${cd.name} (${cd.cost}AP, ${cd.type})`, x + CARD_W / 2, startY + 235 + j * 16);
-        }
-        const maxD = meta.getMaxDifficulty(ch.id);
-        ctx.fillStyle = '#888';
         ctx.font = '10px monospace';
+        const pool = ch.startingPool || [];
+        for (let j = 0; j < Math.min(pool.length, 6); j++) {
+          const cd = CardDefinitions[pool[j]];
+          if (cd) {
+            const col = j % 2, row = Math.floor(j / 2);
+            ctx.fillText(`${cd.name}`, x + 55 + col * 120, startY + 212 + row * 14);
+          }
+        }
+        // Per-char stats
+        ctx.fillStyle = '#555';
+        ctx.font = '10px monospace';
+        ctx.fillText(`Runs: ${charStats.runs}  Wins: ${charStats.wins}  Best: Act ${charStats.bestFloor}`, x + CARD_W / 2, startY + 266);
+        // Difficulty unlock badges
+        const maxD = meta.getMaxDifficulty(ch.id);
         for (let d = 0; d <= 2; d++) {
           ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] : '#333';
-          ctx.fillText(DIFFICULTY_NAMES[d], x + 40 + d * 80, startY + CARD_H - 25);
+          ctx.font = d <= maxD ? 'bold 10px monospace' : '10px monospace';
+          ctx.fillText(DIFFICULTY_NAMES[d], x + 50 + d * 80, startY + CARD_H - 20);
         }
       }
       charSelectBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, charId: ch.id, action: 'select' });
@@ -947,28 +1255,37 @@ function render() {
     runManager.drawMap(renderer.ctx, canvas.width, canvas.height);
     const ctx = renderer.ctx;
     const ch = Characters[selectedCharId];
-    
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
-    ctx.fillRect(0, 0, canvas.width, 50);
-    ctx.strokeStyle = ch ? ch.color : '#fff';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(0, 50); ctx.lineTo(canvas.width, 50); ctx.stroke();
-
+    // Hero info bar — drawn inside the map header area
     ctx.fillStyle = ch ? ch.color : '#aaa';
-    ctx.font = 'bold 16px monospace';
+    ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`HERO: ${ch?.name || 'Unknown'}`, 20, 30);
-
-    const hpW = 200, hpH = 16;
+    ctx.fillText(`${ch?.name || '?'}`, 18, 30);
+    // HP bar compact
+    const hpW = 140, hpH = 12;
     ctx.fillStyle = '#331111';
-    ctx.fillRect(220, 18, hpW, hpH);
-    ctx.fillStyle = '#ff3333';
-    ctx.fillRect(220, 18, (player.hp / player.maxHp) * hpW, hpH);
+    ctx.fillRect(18, 38, hpW, hpH);
+    ctx.fillStyle = '#ee3333';
+    ctx.fillRect(18, 38, (player.hp / player.maxHp) * hpW, hpH);
     ctx.fillStyle = '#fff';
-    ctx.fillText(`HP: ${player.hp}/${player.maxHp}`, 220 + hpW + 15, 30);
-
-    ctx.fillStyle = '#ddd';
-    ctx.fillText(`Cards: ${deckManager.collection.length}  |  Relics: ${itemManager.equipped.length}  |  Floor ${runManager.floor}/${FLOORS_TO_WIN}`, canvas.width - 400, 30);
+    ctx.font = '11px monospace';
+    ctx.fillText(`${player.hp}/${player.maxHp} HP`, 18 + hpW + 6, 48);
+    // Right side info
+    ctx.fillStyle = '#aaa';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${deckManager.collection.length}/${deckManager.MAX_DECK_SIZE} cards  |  ${itemManager.equipped.length} relics`, canvas.width - 18, 30);
+    ctx.fillStyle = '#666';
+    ctx.fillText(`Seed: ${runManager.seed}`, canvas.width - 18, 48);
+    // Inventory button hint
+    ctx.fillStyle = ui.showInventory ? '#44ff88' : '#555';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('[I] Inventory', canvas.width / 2, canvas.height - 16);
+    // Inventory overlay
+    if (ui.showInventory) {
+      ui.width = canvas.width;
+      ui.height = canvas.height;
+      ui.drawInventoryOverlay(ctx);
+    }
     return;
   }
 
@@ -996,6 +1313,15 @@ function render() {
     return;
   }
 
+  // ── DISCARD (standalone, not overlaid) ──
+  if (gameState === 'discard' && discardPendingCardId) {
+    renderer.clear();
+    ui.width = canvas.width; ui.height = canvas.height;
+    ui.setMouse(input.mouse.x, input.mouse.y);
+    ui.drawDiscardScreen(renderer.ctx, discardPendingCardId);
+    return;
+  }
+
   // ── STATS ──
   if (gameState === 'stats') {
     const score = calculateScore(runStats);
@@ -1004,6 +1330,7 @@ function render() {
       difficulty: runStats.difficulty, seed: runStats.seed,
       date: new Date().toISOString()
     });
+    ui.newUnlocks = newUnlocks;
     ui.drawStatsScreen(renderer.ctx, runStats, score, meta.getLeaderboard());
     return;
   }
@@ -1012,7 +1339,10 @@ function render() {
   const now = performance.now();
   renderer.beginShakeScope();
   room.draw(renderer.ctx);
-  for (const e of enemies) e.drawTelegraph(renderer.ctx, now);
+  for (const e of enemies) {
+    e.drawTelegraph(renderer.ctx, now);
+    e._drawIntentIcon(renderer.ctx, now);
+  }
   if (gameState === 'playing') {
     combat.drawRangeIndicator(renderer.ctx, player, deckManager.hand, CardDefinitions, selectedCardSlot);
     combat.drawReticles(renderer.ctx, deckManager.hand, CardDefinitions, now);
@@ -1027,10 +1357,15 @@ function render() {
     ui.selectedCardSlot = selectedCardSlot;
     ui.draw(renderer.ctx);
     const ctx = renderer.ctx;
-    ctx.fillStyle = '#555';
-    ctx.font = '12px monospace';
-    ctx.textAlign = 'right';
-    ctx.fillText(`Floor ${runManager.floor}/${FLOORS_TO_WIN}  |  Rooms: ${roomsCleared}  |  ${DIFFICULTY_NAMES[selectedDifficulty]}`, canvas.width - 20, 20);
+    // Floor / difficulty badge — top right (below minimap)
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(canvas.width - 115, 105, 103, 38);
+    ctx.fillStyle = '#888';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`Act ${runManager.floor}/${FLOORS_TO_WIN}`, canvas.width - 63, 120);
+    ctx.fillStyle = DIFFICULTY_COLORS[selectedDifficulty] || '#888';
+    ctx.fillText(DIFFICULTY_NAMES[selectedDifficulty], canvas.width - 63, 135);
     // Touch controls
     input.drawTouchControls(ctx);
   }
@@ -1042,29 +1377,41 @@ function render() {
     drawDraftScreen();
   } else if (gameState === 'prep') {
     ui.drawPrepScreen(renderer.ctx);
+  } else if (gameState === 'discard') {
+    ui.width = canvas.width; ui.height = canvas.height;
+    ui.setMouse(input.mouse.x, input.mouse.y);
+    ui.drawDiscardScreen(renderer.ctx, discardPendingCardId);
   }
 }
 
 function drawDraftScreen() {
   const ctx = renderer.ctx;
-  ctx.fillStyle = 'rgba(0,0,0,0.88)';
+
+  // Gradient background
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  bgGrad.addColorStop(0, '#08080f');
+  bgGrad.addColorStop(1, '#0d0d18');
+  ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.fillStyle = '#44ff88';
-  ctx.font = 'bold 42px monospace';
+  ctx.font = 'bold 46px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('ROOM CLEARED!', canvas.width / 2, 80);
+  ctx.fillText('ROOM CLEARED!', canvas.width / 2, 75);
+
+  ctx.fillStyle = 'rgba(68,255,136,0.12)';
+  ctx.fillRect(0, 82, canvas.width, 2);
 
   ctx.fillStyle = '#aaa';
-  ctx.font = '16px monospace';
-  const hint = draftChoices.length < 3 ? `Only ${draftChoices.length} card(s) left to discover!` : 'Click or press 1-3 to pick a new card.';
-  ctx.fillText(hint, canvas.width / 2, 120);
+  ctx.font = '15px monospace';
+  const hint = draftChoices.length < 3 ? `Only ${draftChoices.length} card(s) left to discover!` : 'Choose a new card for your deck.';
+  ctx.fillText(hint, canvas.width / 2, 116);
 
-  const CARD_W = 200, CARD_H = 280, GAP = 40;
+  const CARD_W = 210, CARD_H = 290, GAP = 44;
   const count = draftChoices.length;
   const totalW = count * CARD_W + (count - 1) * GAP;
   const startX = (canvas.width - totalW) / 2;
-  const startY = 200;
+  const startY = 152;
   draftBoxes = [];
 
   for (let i = 0; i < count; i++) {
@@ -1073,64 +1420,97 @@ function drawDraftScreen() {
     const def = CardDefinitions[cardId];
     if (!def) continue;
 
+    const rarCol = def.rarity === 'rare' ? '#bb44ff' : (def.rarity === 'uncommon' ? '#44dd88' : '#888899');
+    const rarLabel = def.rarity ? def.rarity.toUpperCase() : 'COMMON';
+
     ctx.save();
-    ctx.shadowColor = 'rgba(0,0,0,0.8)';
-    ctx.shadowBlur = 20;
-    ctx.shadowOffsetY = 10;
+    ctx.shadowColor = def.rarity === 'rare' ? 'rgba(187,68,255,0.4)' : (def.rarity === 'uncommon' ? 'rgba(68,221,136,0.3)' : 'rgba(0,0,0,0.6)');
+    ctx.shadowBlur = def.rarity === 'rare' ? 30 : 18;
+    ctx.shadowOffsetY = 8;
 
     let grad = ctx.createLinearGradient(x, startY, x, startY + CARD_H);
-    grad.addColorStop(0, '#222633');
-    grad.addColorStop(1, '#151522');
+    grad.addColorStop(0, '#22263a');
+    grad.addColorStop(1, '#14141f');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.roundRect(x, startY, CARD_W, CARD_H, 16);
+    ctx.roundRect(x, startY, CARD_W, CARD_H, 14);
     ctx.fill();
 
     ctx.shadowColor = 'transparent';
+    // Rarity top bar
+    ctx.fillStyle = rarCol;
+    ctx.fillRect(x, startY, CARD_W, 4);
+    // Left color stripe
     ctx.fillStyle = def.color || '#5588cc';
-    ctx.fillRect(x, startY, 4, CARD_H);
-    ctx.strokeStyle = def.color || '#5588cc';
-    ctx.lineWidth = 2;
+    ctx.fillRect(x, startY + 4, 4, CARD_H - 4);
+    ctx.strokeStyle = rarCol;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.roundRect(x, startY, CARD_W, CARD_H, 14);
     ctx.stroke();
 
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
-    ctx.font = 'bold 14px monospace';
+    // Key hint + rarity badge
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(`[${i + 1}]`, x + CARD_W - 12, startY + 22);
+    ctx.fillText(`[${i + 1}]`, x + CARD_W - 10, startY + 20);
 
+    ctx.fillStyle = rarCol;
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(rarLabel, x + 14, startY + 20);
+
+    // Card name
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 20px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(def.name, x + CARD_W / 2, startY + 35);
+    ctx.fillText(def.name, x + CARD_W / 2, startY + 42);
 
+    // Divider
+    ctx.strokeStyle = (def.color || '#5588cc') + '88';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x + 14, startY + 50); ctx.lineTo(x + CARD_W - 14, startY + 50); ctx.stroke();
+
+    // AP badge
     ctx.fillStyle = '#44aaff';
     ctx.beginPath();
-    // Shifted cost badge to overlap the top-left edge nicely out of the way
-    ctx.arc(x, startY, 18, 0, Math.PI * 2);
+    ctx.arc(x + 20, startY + 70, 15, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 18px monospace';
-    ctx.fillText(def.cost, x, startY + 6);
+    ctx.font = 'bold 15px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(def.cost, x + 20, startY + 75);
 
-    ctx.fillStyle = '#aaa';
-    ctx.font = '12px monospace';
-    ctx.fillText(`Range: ${def.range}px`, x + CARD_W / 2, startY + 65);
+    // Tempo shift
+    ctx.fillStyle = def.tempoShift > 0 ? '#ffaa55' : '#55bbff';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' TEMPO', x + CARD_W / 2 + 10, startY + 78);
 
-    ctx.fillStyle = def.tempoShift > 0 ? '#ffaa66' : '#66ccff';
-    ctx.font = '14px monospace';
-    ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, startY + 90);
-
-    ctx.fillStyle = '#ff8888';
-    ctx.font = '13px monospace';
-    ctx.fillText(`${def.damage} DMG  |  ${def.type.toUpperCase()}`, x + CARD_W / 2, startY + 115);
-
-    ctx.fillStyle = '#cccccc';
+    // Type + range
+    ctx.fillStyle = def.color || '#888';
+    ctx.font = 'bold 11px monospace';
+    ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, startY + 98);
+    ctx.fillStyle = '#667';
     ctx.font = '11px monospace';
-    ui._wrapText(ctx, def.desc, x + 10, startY + 150, CARD_W - 20, 16);
+    ctx.fillText(`${def.range}px range`, x + CARD_W / 2, startY + 113);
 
-    ctx.fillStyle = '#44ff88';
+    // DMG
+    if (def.damage > 0) {
+      ctx.fillStyle = '#ff9988';
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText(`${def.damage} DMG`, x + CARD_W / 2, startY + 138);
+    }
+
+    // Description
+    ctx.fillStyle = '#bbbbc8';
+    ctx.font = '11px monospace';
+    ui._wrapText(ctx, def.desc, x + 12, startY + 165, CARD_W - 24, 15);
+
+    // Pick CTA
+    ctx.fillStyle = rarCol;
     ctx.font = 'bold 12px monospace';
-    ctx.fillText('CLICK TO PICK', x + CARD_W / 2, startY + CARD_H - 15);
+    ctx.fillText('CLICK TO PICK', x + CARD_W / 2, startY + CARD_H - 14);
 
     ctx.restore();
     draftBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, idx: i });
@@ -1144,25 +1524,65 @@ function drawPauseMenu() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Panel
-  const panelW = 360, panelH = 320;
+  const panelW = 380, panelH = pauseQuitConfirm ? 300 : 340;
   const px = (canvas.width - panelW) / 2;
   const py = (canvas.height - panelH) / 2;
 
-  ctx.fillStyle = '#111118';
+  ctx.fillStyle = '#0e0e1a';
   ctx.beginPath();
   ctx.roundRect(px, py, panelW, panelH, 16);
   ctx.fill();
   ctx.strokeStyle = '#44aaff';
   ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.roundRect(px, py, panelW, panelH, 16);
   ctx.stroke();
+
+  pauseMenuBoxes = [];
+
+  if (pauseQuitConfirm) {
+    ctx.fillStyle = '#ff5555';
+    ctx.font = 'bold 24px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('QUIT TO MENU?', canvas.width / 2, py + 55);
+    ctx.fillStyle = '#888';
+    ctx.font = '13px monospace';
+    ctx.fillText('Your run progress will be lost.', canvas.width / 2, py + 82);
+
+    const btnW = 160, btnH = 48, btnGap = 20;
+    const totalW = btnW * 2 + btnGap;
+    const confirmBtns = [
+      { label: 'YES, QUIT', action: 'quit', color: '#ff5555', bg: '#2e1a1a', x: (canvas.width - totalW) / 2 },
+      { label: 'CANCEL', action: 'quit_cancel', color: '#44ff88', bg: '#1a2e22', x: (canvas.width - totalW) / 2 + btnW + btnGap },
+    ];
+    const by = py + 120;
+    for (const btn of confirmBtns) {
+      ctx.fillStyle = btn.bg;
+      ctx.beginPath();
+      ctx.roundRect(btn.x, by, btnW, btnH, 8);
+      ctx.fill();
+      ctx.strokeStyle = btn.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = btn.color;
+      ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(btn.label, btn.x + btnW / 2, by + 31);
+      pauseMenuBoxes.push({ x: btn.x, y: by, w: btnW, h: btnH, action: btn.action });
+    }
+
+    ctx.fillStyle = '#444';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Press ESC to cancel', canvas.width / 2, py + panelH - 18);
+    return;
+  }
 
   // Title
   ctx.fillStyle = '#ffffff';
   ctx.font = 'bold 32px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('PAUSED', canvas.width / 2, py + 50);
-
-  pauseMenuBoxes = [];
+  ctx.fillText('PAUSED', canvas.width / 2, py + 52);
 
   const buttons = [
     { label: 'RESUME', action: 'resume', color: '#44ff88', bg: '#1a2e22' },
@@ -1170,8 +1590,8 @@ function drawPauseMenu() {
     { label: 'QUIT TO MENU', action: 'quit', color: '#ff5555', bg: '#2e1a1a' },
   ];
 
-  const btnW = 260, btnH = 50, btnGap = 18;
-  const btnStartY = py + 90;
+  const btnW = 270, btnH = 50, btnGap = 16;
+  const btnStartY = py + 88;
 
   for (let i = 0; i < buttons.length; i++) {
     const btn = buttons[i];
@@ -1194,10 +1614,10 @@ function drawPauseMenu() {
     pauseMenuBoxes.push({ x: bx, y: by, w: btnW, h: btnH, action: btn.action });
   }
 
-  ctx.fillStyle = '#555';
+  ctx.fillStyle = '#444';
   ctx.font = '12px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText('Press ESC to resume', canvas.width / 2, py + panelH - 20);
+  ctx.fillText('Press ESC to resume', canvas.width / 2, py + panelH - 18);
 }
 
 window.addEventListener('click', () => {

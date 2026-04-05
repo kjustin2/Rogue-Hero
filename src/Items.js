@@ -7,16 +7,20 @@ export const ItemDefinitions = {
   runaway:        { id: 'runaway',        name: 'Runaway',        rarity: 'uncommon', color: '#ff8844', desc: 'Tempo no longer decays from Hot' },
   iron_pulse:     { id: 'iron_pulse',     name: 'Iron Pulse',     rarity: 'common',   color: '#aaaacc', desc: 'Max HP +2, restore 2 HP' },
   cold_fury:      { id: 'cold_fury',      name: 'Cold Fury',      rarity: 'common',   color: '#4488ff', desc: 'At Cold Tempo, dash deals contact damage' },
-  surge_coil:     { id: 'surge_coil',     name: 'Surge Coil',     rarity: 'uncommon', color: '#ff4444', desc: 'Crash burst radius +60%' },
+  surge_coil:     { id: 'surge_coil',     name: 'Surge Coil',     rarity: 'uncommon', color: '#ff4444', desc: 'Auto-crash burst radius +60%' },
   echo:           { id: 'echo',           name: 'Echo',           rarity: 'uncommon', color: '#cc88ff', desc: 'On Tempo Crash, last attack repeats at half damage' },
   precision:      { id: 'precision',      name: 'Precision',      rarity: 'common',   color: '#aaddff', desc: 'Perfect Dodge slow-mo lasts twice as long' },
   glass_heart:    { id: 'glass_heart',    name: 'Glass Heart',    rarity: 'rare',     color: '#ff3333', desc: 'Start each room at 90 Tempo' },
   tempo_tap:      { id: 'tempo_tap',      name: 'Tempo Tap',      rarity: 'uncommon', color: '#44ff88', desc: 'Dodging raises Tempo +5 instead of −5' },
   sustained:      { id: 'sustained',      name: 'Sustained',      rarity: 'uncommon', color: '#ffaa44', desc: 'Killing an enemy stops Tempo decay for 2s' },
-  last_rites:     { id: 'last_rites',     name: 'Last Rites',     rarity: 'rare',     color: '#ff2222', desc: 'On death: auto-crash if Tempo ≥ 50, revive at 1 HP (once)' },
+  last_rites:     { id: 'last_rites',     name: 'Last Rites',     rarity: 'rare',     color: '#ff2222', desc: 'On death: auto-crash if Tempo ≥ 50, revive at 1 HP. Once per run.' },
   cold_blood:     { id: 'cold_blood',     name: 'Cold Blood',     rarity: 'common',   color: '#6688ff', desc: 'Kills while Cold restore 1 HP (once per room)' },
   deadweight:     { id: 'deadweight',     name: 'Deadweight',     rarity: 'common',   color: '#888888', desc: '+3 Max HP, −10% speed. Pure tank.' },
-  volatile_soles: { id: 'volatile_soles', name: 'Volatile Soles', rarity: 'uncommon', color: '#ff6600', desc: 'Crash burst radius +60%' },
+  volatile_soles: { id: 'volatile_soles', name: 'Volatile Soles', rarity: 'uncommon', color: '#ff6600', desc: 'Auto-crash burst radius +60%' },
+  time_warp:      { id: 'time_warp',      name: 'Time Warp',      rarity: 'rare',     color: '#aaccff', desc: 'Perfect dodge slow-mo lasts 3× as long' },
+  phantom_ink:    { id: 'phantom_ink',    name: 'Phantom Ink',    rarity: 'uncommon', color: '#bb88ff', desc: 'Invisible to enemy aggro while dodging' },
+  void_shard:     { id: 'void_shard',     name: 'Void Shard',     rarity: 'uncommon', color: '#224488', desc: 'Your projectiles pierce through 1 extra enemy' },
+  abyss_heart:    { id: 'abyss_heart',    name: 'Abyss Heart',    rarity: 'rare',     color: '#ff2266', desc: '+1 max HP each time you defeat a boss' },
 };
 
 export class ItemManager {
@@ -49,14 +53,15 @@ export class ItemManager {
     this.equipped.push(itemId);
     console.log(`[Items] Equipped "${itemId}"`);
 
+    const noHeal = player._classPassives && player._classPassives.noHealingFromRelics;
     switch (itemId) {
       case 'iron_pulse':
         player.maxHp += 2;
-        player.hp = Math.min(player.hp + 2, player.maxHp);
+        if (!noHeal) player.hp = Math.min(player.hp + 2, player.maxHp);
         break;
       case 'deadweight':
         player.maxHp += 3;
-        player.hp = Math.min(player.hp + 3, player.maxHp);
+        if (!noHeal) player.hp = Math.min(player.hp + 3, player.maxHp);
         player.BASE_SPEED = Math.round(player.BASE_SPEED * 0.9);
         break;
     }
@@ -94,7 +99,23 @@ export class ItemManager {
   }
 
   perfectDodgeSlowMoDuration() {
+    if (this.has('time_warp')) return 1.2;
     return this.has('precision') ? 0.8 : 0.4;
+  }
+
+  // Called on boss kill for abyss_heart
+  onBossKill(player) {
+    if (this.has('abyss_heart')) {
+      player.maxHp++;
+      player.hp = Math.min(player.hp + 1, player.maxHp);
+      return true;
+    }
+    return false;
+  }
+
+  // Void shard: projectile pierce count
+  projectilePierceCount() {
+    return this.has('void_shard') ? 2 : 1;
   }
 
   shouldColdDashDamage(tempoValue) {
@@ -122,7 +143,8 @@ export class ItemManager {
       this.lastRitesUsed = true;
       player.hp = 1;
       player.alive = true;
-      events.emit('TRIGGER_CRASH', { x: player.x, y: player.y });
+      // Trigger crash directly via event (uses the new auto-crash system)
+      events.emit('REQUEST_PLAYER_POS_CRASH', { radius: 100, dmg: 25, accidental: true });
       return true; // Revived
     }
     return false;

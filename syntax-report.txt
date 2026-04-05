@@ -1,0 +1,28 @@
+Syntax check — 2026-04-05T13:55:41.187Z
+Checked 23 files in src/
+============================================================
+  OK   src/Characters.js
+  OK   src/Combat.js
+  OK   src/DeckManager.js
+  OK   src/Enemy.js
+  OK   src/Engine.js
+  OK   src/Entity.js
+  OK   src/EventBus.js
+  OK   src/Input.js
+  OK   src/Items.js
+  OK   src/MetaProgress.js
+  OK   src/Particles.js
+  OK   src/Projectile.js
+  OK   src/Renderer.js
+  OK   src/RunManager.js
+  OK   src/audio.js
+  OK   src/effects.js
+  OK   src/enemies.js
+  OK   src/main.js
+  OK   src/player.js
+  OK   src/room.js
+  OK   src/state.js
+  OK   src/tempo.js
+  OK   src/ui.js
+============================================================
+Result: 23 OK, 0 error(s)

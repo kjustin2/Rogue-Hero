@@ -30,14 +30,26 @@ export class RoomManager {
     const fh = this.FLOOR_Y2 - this.FLOOR_Y1;
 
     if (this.variant === 'pillars') {
-      // 2-4 random pillars
+      // 2-4 random pillars with gap enforcement (min 90px between pillars)
       const count = 2 + Math.floor((rng ? rng() : Math.random()) * 3);
+      const MIN_GAP = 90;
       for (let i = 0; i < count; i++) {
-        const pw = 30 + Math.floor((rng ? rng() : Math.random()) * 40);
-        const ph = 30 + Math.floor((rng ? rng() : Math.random()) * 40);
-        const px = this.FLOOR_X1 + 60 + Math.floor((rng ? rng() : Math.random()) * (fw - 120 - pw));
-        const py = this.FLOOR_Y1 + 60 + Math.floor((rng ? rng() : Math.random()) * (fh - 120 - ph));
-        this.pillars.push({ x: px, y: py, w: pw, h: ph });
+        let attempts = 0, placed = false;
+        while (attempts < 20 && !placed) {
+          attempts++;
+          const pw = 30 + Math.floor((rng ? rng() : Math.random()) * 35);
+          const ph = 30 + Math.floor((rng ? rng() : Math.random()) * 35);
+          const px = this.FLOOR_X1 + 60 + Math.floor((rng ? rng() : Math.random()) * (fw - 120 - pw));
+          const py = this.FLOOR_Y1 + 60 + Math.floor((rng ? rng() : Math.random()) * (fh - 120 - ph));
+          // Check gap against existing pillars
+          let tooClose = false;
+          for (const ep of this.pillars) {
+            const gapX = Math.max(0, Math.max(ep.x, px) - Math.min(ep.x + ep.w, px + pw));
+            const gapY = Math.max(0, Math.max(ep.y, py) - Math.min(ep.y + ep.h, py + ph));
+            if (gapX < MIN_GAP && gapY < MIN_GAP) { tooClose = true; break; }
+          }
+          if (!tooClose) { this.pillars.push({ x: px, y: py, w: pw, h: ph }); placed = true; }
+        }
       }
     } else if (this.variant === 'arena') {
       // Four corner pillars

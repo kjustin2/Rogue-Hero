@@ -5,7 +5,7 @@ export class TempoSystem {
     this.value = 50;
     this.targetValue = 50;
     this.REST = 50;
-    this.DECAY_RATE = 0;
+    this.DECAY_RATE = 5;
     this.isCrashed = false;
     this.crashRecoverTimer = 0;
     this.sustainedTimer = 0;
@@ -29,7 +29,6 @@ export class TempoSystem {
     events.on('HEAVY_MISS', () => this.onHeavyMiss());
     events.on('DAMAGE_TAKEN', () => this.onDamageTaken());
     events.on('DRAIN', () => this.onDrained());
-    events.on('TRIGGER_CRASH', (pos) => this.manualCrash(pos));
   }
 
   setClassPassives(passives) {
@@ -37,6 +36,10 @@ export class TempoSystem {
     if (passives) {
       this.modifiers.gainMult = passives.tempoGainMult || 1;
       this.crashResetValue = passives.crashResetValue || 50;
+      // Echo: dampened decay
+      if (passives.dampedDecay) {
+        this.modifiers.decayRate = passives.dampedDecay;
+      }
     }
   }
 
@@ -91,21 +94,27 @@ export class TempoSystem {
       events.emit('ZONE_TRANSITION', { oldZone, newZone });
     }
 
-    if (this.value >= 100 && !this.isCrashed) {
-      this._triggerAccidentalCrash();
-    }
   }
 
   _add(amount) {
     if (amount === 0 || this.isCrashed) return;
     if (amount > 0) amount *= this.modifiers.gainMult;
-    this.targetValue = Math.max(0, Math.min(100, this.targetValue + amount));
+    this.targetValue += amount;
+    if (this.targetValue >= 100) {
+      this.targetValue = 100;
+      this._triggerAccidentalCrash();
+    } else if (this.targetValue <= 0) {
+      this.targetValue = 0;
+      this._triggerColdCrash();
+    }
   }
 
   onComboHit(hitNum) { this._add(hitNum === 3 ? 15 : 4); }
   onKill() { this._add(10); }
 
   onDodge() {
+    // Vanguard Fortified Dodge: no tempo cost
+    if (this.classPassives && this.classPassives.fortifiedDodge) return;
     // Items can override dodge tempo shift
     if (this.itemManager) {
       this._add(this.itemManager.dodgeTempoShift(this.value));
@@ -115,6 +124,12 @@ export class TempoSystem {
   }
 
   onPerfectDodge() {
+    // Echo zone ping: snap toward 50
+    if (this.classPassives && this.classPassives.zonePingOnPerfectDodge) {
+      const snap = this.value > 50 ? -15 : 15;
+      this._add(snap);
+      return;
+    }
     const gain = (this.classPassives && this.classPassives.perfectDodgeTempoGain) || 10;
     this._add(gain);
   }
@@ -131,22 +146,25 @@ export class TempoSystem {
 
   onDrained() { this._add(-20); }
 
-  manualCrash(pos) {
-    const minTempo = (this.classPassives && this.classPassives.manualCrashMinTempo) || 85;
-    if (this.isCrashed || this.value < minTempo) return false;
-    const radius = 120 * this.modifiers.crashRadiusBonus;
+  _triggerAccidentalCrash() {
+    if (this.isCrashed) return;
+    const radius = 100 * this.modifiers.crashRadiusBonus;
     const dmg = Math.round(this.damageMultiplier() * 2.5 * 10);
-
-    events.emit('CRASH_ATTACK', { x: pos.x, y: pos.y, radius, dmg, source: 'manual' });
-    this._doCrash(0.15, 0.25, 0.7);
-    return true;
+    events.emit('REQUEST_PLAYER_POS_CRASH', { radius, dmg, accidental: true });
+    this._doCrash(0.2, 0.4, 1.0);
   }
 
-  _triggerAccidentalCrash() {
-    const radius = 80 * this.modifiers.crashRadiusBonus;
-    const dmg = Math.round(this.damageMultiplier() * 1.5 * 10);
-    events.emit('REQUEST_PLAYER_POS_CRASH', { radius, dmg });
-    this._doCrash(0.2, 0.3, 0.8);
+  _triggerColdCrash() {
+    if (this.isCrashed) return;
+    // Cold crash: massive freeze AoE, reset tempo to 20
+    events.emit('COLD_CRASH', { radius: 200, freezeDur: 3.0 });
+    this.isCrashed = true;
+    this.value = 20;
+    this.targetValue = 20;
+    this.crashRecoverTimer = 0.6;
+    events.emit('HIT_STOP', 0.25);
+    events.emit('SCREEN_SHAKE', { duration: 0.45, intensity: 0.9 });
+    events.emit('PLAY_SOUND', 'crash');
   }
 
   _doCrash(hitStopDur, shakeDur, shakeIntens) {

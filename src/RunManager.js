@@ -48,13 +48,12 @@ export class RunManager {
         if (i === 0) type = 'start';
         else if (i === this.maxLayers - 1) type = 'boss';
         else if (i === this.maxLayers - 2) type = 'rest';
-        else if (i === Math.floor(this.maxLayers / 2)) type = 'rest';
         else {
           let r = rng();
           if (r < 0.40)      type = 'fight';
           else if (r < 0.60) type = 'elite';
           else if (r < 0.75) type = 'event';
-          else if (r < 0.88) type = 'shop';
+          else if (r < 0.96) type = 'shop';
           else               type = 'rest';
         }
 
@@ -123,122 +122,181 @@ export class RunManager {
   }
 
   drawMap(ctx, width, height) {
-    ctx.fillStyle = 'rgba(0,0,0,0.9)';
+    // Background — darker toward the edges, act-themed
+    const floorThemes = [
+      { bg: '#0d0d18', col: '#44aaff', name: '' },
+      { bg: '#0e0a10', col: '#cc66ff', name: '— CATACOMBS' },
+      { bg: '#100808', col: '#ff6644', name: '— THE CITADEL' },
+      { bg: '#060512', col: '#00eedd', name: '— THE ABYSS' },
+      { bg: '#100e06', col: '#ffd700', name: '— THE APEX' },
+    ];
+    const theme = floorThemes[Math.min(this.floor - 1, 4)];
+    ctx.fillStyle = theme.bg;
     ctx.fillRect(0, 0, width, height);
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 36px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`FLOOR ${this.floor} MAP`, width / 2, 50);
+    // Subtle grid texture
+    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
+    ctx.lineWidth = 1;
+    for (let gx = 0; gx < width; gx += 60) {
+      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, height); ctx.stroke();
+    }
+    for (let gy = 0; gy < height; gy += 60) {
+      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(width, gy); ctx.stroke();
+    }
 
-    // Seed display
+    // Header bar
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, 0, width, 80);
+
+    ctx.fillStyle = theme.col;
+    ctx.font = 'bold 34px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`ACT ${this.floor}${theme.name}`, width / 2, 46);
+
     ctx.fillStyle = '#555';
     ctx.font = '12px monospace';
-    ctx.fillText(`Seed: ${this.seed}`, width / 2, 70);
+    ctx.fillText('Choose your path — click a glowing room', width / 2, 68);
 
-    const START_Y = height - 100;
-    const END_Y = 120;
+    const START_Y = height - 90;
+    const END_Y = 110;
     const gapY = (START_Y - END_Y) / (this.maxLayers - 1);
 
     this.clickSpheres = [];
 
-    const nodeColors = {
-      start: '#aaa', fight: '#cc4444', elite: '#ff6666',
-      rest: '#44ffaa', boss: '#ffaa00', event: '#ff88ff', shop: '#44aaff'
-    };
-    const nodeLabels = {
-      fight: '', elite: 'ELITE', rest: 'REST', boss: 'BOSS', event: 'EVENT', shop: 'SHOP', start: ''
+    // Room type config: color, icon emoji, label
+    const nodeConfig = {
+      start:  { col: '#888888', icon: '◉', label: '' },
+      fight:  { col: '#cc3333', icon: '⚔', label: 'FIGHT' },
+      elite:  { col: '#ff6644', icon: '★', label: 'ELITE' },
+      rest:   { col: '#44dd88', icon: '+', label: 'REST' },
+      boss:   { col: '#ffaa00', icon: '☠', label: 'BOSS' },
+      event:  { col: '#dd88ff', icon: '?', label: 'EVENT' },
+      shop:   { col: '#44aaff', icon: '$', label: 'SHOP' },
     };
 
-    // First pass: Draw connections
-    ctx.lineWidth = 2;
+    // First pass: connections
     for (let i = 0; i < this.maxLayers; i++) {
-      for (let node of this.layers[i]) {
+      for (const node of this.layers[i]) {
         const cy = START_Y - (node.layer * gapY);
-        const cx = (width * 0.3) + node.xPos * (width * 0.4);
-        let isCurr = (this.currentNodeId === node.id);
-
-        for (let nextId of node.next) {
-          let nextNode = this.nodeMap[nextId];
+        const cx = (width * 0.25) + node.xPos * (width * 0.5);
+        for (const nextId of node.next) {
+          const nextNode = this.nodeMap[nextId];
           const ny = START_Y - (nextNode.layer * gapY);
-          const nx = (width * 0.3) + nextNode.xPos * (width * 0.4);
-
-          if (isCurr) { ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; }
-          else { ctx.strokeStyle = '#444'; ctx.lineWidth = 2; }
+          const nx = (width * 0.25) + nextNode.xPos * (width * 0.5);
+          const isPast = node.layer < (this.nodeMap[this.currentNodeId]?.layer || 0);
+          ctx.strokeStyle = isPast ? '#2a2a3a' : '#333355';
+          ctx.lineWidth = isPast ? 1 : 1.5;
+          ctx.setLineDash(isPast ? [4, 6] : []);
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(nx, ny);
           ctx.stroke();
+          ctx.setLineDash([]);
         }
       }
     }
 
-    // Second pass: Draw nodes
-    let validTargets = [];
-    if (this.currentNodeId && this.nodeMap[this.currentNodeId]) {
-      validTargets = this.nodeMap[this.currentNodeId].next;
+    // Current node highlight connections
+    const currNode = this.nodeMap[this.currentNodeId];
+    let validTargets = currNode ? currNode.next : [];
+    if (currNode) {
+      const cy = START_Y - (currNode.layer * gapY);
+      const cx = (width * 0.25) + currNode.xPos * (width * 0.5);
+      for (const nextId of validTargets) {
+        const nn = this.nodeMap[nextId];
+        const ny = START_Y - (nn.layer * gapY);
+        const nx = (width * 0.25) + nn.xPos * (width * 0.5);
+        const t = Date.now() / 1000;
+        const pulse = 0.4 + Math.sin(t * 3) * 0.3;
+        ctx.strokeStyle = `rgba(255,255,255,${pulse})`;
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(nx, ny);
+        ctx.stroke();
+      }
     }
 
+    // Second pass: nodes
     for (let i = 0; i < this.maxLayers; i++) {
-      for (let node of this.layers[i]) {
+      for (const node of this.layers[i]) {
         const cy = START_Y - (node.layer * gapY);
-        const cx = (width * 0.3) + node.xPos * (width * 0.4);
+        const cx = (width * 0.25) + node.xPos * (width * 0.5);
+        const cfg = nodeConfig[node.type] || nodeConfig.fight;
 
-        let isCurrent = (node.id === this.currentNodeId);
-        let isValidNext = validTargets.includes(node.id);
-        let isPast = (node.layer < this.nodeMap[this.currentNodeId]?.layer);
+        const isCurrent = node.id === this.currentNodeId;
+        const isValidNext = validTargets.includes(node.id);
+        const isPast = node.layer < (currNode?.layer || 0);
+        const isBoss = node.type === 'boss';
 
-        let rad = 14;
-        if (node.type === 'boss') rad = 24;
-        if (node.type === 'event' || node.type === 'shop') rad = 16;
+        let rad = isBoss ? 26 : (node.type === 'elite' ? 18 : 15);
+        this.clickSpheres.push({ x: cx, y: cy, r: rad + 12, id: node.id });
 
-        this.clickSpheres.push({ x: cx, y: cy, r: rad + 10, id: node.id });
+        // Glow for valid next nodes
+        if (isValidNext) {
+          const t = Date.now() / 1000;
+          const glowR = rad + 10 + Math.sin(t * 3) * 4;
+          ctx.save();
+          ctx.shadowColor = cfg.col;
+          ctx.shadowBlur = 20;
+          ctx.strokeStyle = cfg.col + 'aa';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.arc(cx, cy, glowR, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.restore();
+        }
 
-        // Node icon
+        // Node body
         ctx.beginPath();
         if (node.type === 'event') {
-          // Diamond
-          ctx.moveTo(cx, cy - rad); ctx.lineTo(cx + rad, cy);
-          ctx.lineTo(cx, cy + rad); ctx.lineTo(cx - rad, cy); ctx.closePath();
+          ctx.moveTo(cx, cy - rad);
+          ctx.lineTo(cx + rad, cy);
+          ctx.lineTo(cx, cy + rad);
+          ctx.lineTo(cx - rad, cy);
+          ctx.closePath();
         } else if (node.type === 'shop') {
-          // Square with rounded corners
-          ctx.beginPath();
           ctx.roundRect(cx - rad, cy - rad, rad * 2, rad * 2, 5);
         } else {
           ctx.arc(cx, cy, rad, 0, Math.PI * 2);
         }
 
-        if (isCurrent) ctx.fillStyle = '#fff';
-        else if (isValidNext) ctx.fillStyle = nodeColors[node.type] || '#44aaff';
-        else if (isPast) ctx.fillStyle = '#333';
-        else ctx.fillStyle = '#111';
+        if (isCurrent) {
+          ctx.fillStyle = '#ffffff';
+        } else if (isValidNext) {
+          ctx.fillStyle = cfg.col;
+        } else if (isPast) {
+          ctx.fillStyle = '#1a1a28';
+        } else {
+          ctx.fillStyle = '#0d0d18';
+        }
         ctx.fill();
 
-        if (isValidNext) {
-          ctx.strokeStyle = '#fff';
-          ctx.lineWidth = Math.sin(Date.now() / 150) * 2 + 3;
-          ctx.stroke();
-        } else {
-          ctx.strokeStyle = '#444';
-          ctx.lineWidth = 2;
-          ctx.stroke();
-        }
+        ctx.strokeStyle = isCurrent ? '#ffaa00' : (isValidNext ? '#ffffff' : (isPast ? '#222' : '#334'));
+        ctx.lineWidth = isCurrent ? 3 : (isValidNext ? 2 : 1);
+        ctx.stroke();
 
-        // Label
-        const label = nodeLabels[node.type] || '';
-        if (label) {
-          ctx.fillStyle = isValidNext ? (nodeColors[node.type] || '#fff') : '#666';
-          if (isCurrent) ctx.fillStyle = '#ffaa00';
-          ctx.font = node.type === 'boss' ? 'bold 16px monospace' : 'bold 12px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(label, cx + rad + 22, cy + 4);
+        // Icon text
+        ctx.fillStyle = isCurrent ? '#000' : (isValidNext ? '#fff' : (isPast ? '#333' : '#222'));
+        ctx.font = `bold ${isBoss ? 18 : 13}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText(cfg.icon, cx, cy + (isBoss ? 6 : 5));
+
+        // Label below node
+        if (cfg.label) {
+          ctx.fillStyle = isCurrent ? '#ffaa00' : (isValidNext ? cfg.col : (isPast ? '#333' : '#2a2a3a'));
+          ctx.font = `bold ${isBoss ? 13 : 10}px monospace`;
+          ctx.fillText(cfg.label, cx, cy + rad + 14);
         }
       }
     }
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 18px monospace';
+    // Footer
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(0, height - 48, width, 48);
+    ctx.fillStyle = '#44ff88';
+    ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CLICK A GLOWING NODE TO TRAVEL', width / 2, height - 30);
+    ctx.fillText('Click a glowing room to advance', width / 2, height - 18);
   }
 }

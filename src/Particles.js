@@ -180,6 +180,36 @@ export class ParticleSystem {
           ctx.globalAlpha = Math.max(0, (1 - t) * 0.12);
           ctx.fillStyle = '#ffffff';
           ctx.fillRect(0, 0, canvasW, canvasH);
+
+        } else if (s.type === 'crashtext') {
+          // Big CRASH! text center-screen with glow
+          const scaleT = t < 0.2 ? t / 0.2 : 1 - (t - 0.2) / 0.8;
+          const size = Math.round(48 + scaleT * 32);
+          ctx.globalAlpha = Math.max(0, scaleT * 0.95);
+          ctx.save();
+          ctx.shadowColor = '#ff4400';
+          ctx.shadowBlur = 40;
+          ctx.fillStyle = '#ff6600';
+          ctx.font = `bold ${size}px monospace`;
+          ctx.textAlign = 'center';
+          ctx.fillText('CRASH!', canvasW / 2, canvasH / 2 - 30);
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = '#ffffff';
+          ctx.font = `bold ${Math.round(size * 0.5)}px monospace`;
+          ctx.fillText(`${s.dmg} DMG`, canvasW / 2, canvasH / 2 + 20);
+          ctx.restore();
+        } else if (s.type === 'roomEntryFlash') {
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.55);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvasW, canvasH);
+        } else if (s.type === 'crashFlash') {
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.65);
+          ctx.fillStyle = '#ff5500';
+          ctx.fillRect(0, 0, canvasW, canvasH);
+        } else if (s.type === 'coldCrashFlash') {
+          ctx.globalAlpha = Math.max(0, (1 - t) * 0.7);
+          ctx.fillStyle = '#44aaff';
+          ctx.fillRect(0, 0, canvasW, canvasH);
         }
       }
       ctx.globalAlpha = 1.0;
@@ -301,5 +331,46 @@ export class ParticleSystem {
 
   spawnLastKill() {
     this.screenEffects.push({ type: 'lastkill', life: 0.2, maxLife: 0.2 });
+  }
+
+  spawnCrashText(dmg) {
+    this.screenEffects.push({ type: 'crashtext', life: 0.9, maxLife: 0.9, dmg });
+  }
+
+  spawnRoomEntryFlash() {
+    this.screenEffects.push({ type: 'roomEntryFlash', life: 0.3, maxLife: 0.3 });
+  }
+
+  spawnCrashFlash() {
+    this.screenEffects.push({ type: 'crashFlash', life: 0.18, maxLife: 0.18 });
+  }
+
+  spawnColdCrashFlash() {
+    this.screenEffects.push({ type: 'coldCrashFlash', life: 0.35, maxLife: 0.35 });
+  }
+
+  spawnOverloaded(x, y) {
+    this.texts.push({
+      x, y: y - 20,
+      vx: 0, vy: -60,
+      text: 'OVERLOADED!',
+      color: '#ff3333',
+      size: 18,
+      life: 0.8, maxLife: 0.8
+    });
+  }
+
+  spawnComboDisplay(count, x, y) {
+    if (count < 2) return;
+    const label = count >= 3 ? `×${count} COMBO FINISH!` : `×${count} COMBO`;
+    const col = count >= 3 ? '#ffaa00' : '#ffffff';
+    this.texts.push({
+      x, y,
+      vx: 0, vy: -50,
+      text: label,
+      color: col,
+      size: count >= 3 ? 22 : 16,
+      life: 0.85, maxLife: 0.85
+    });
   }
 }
