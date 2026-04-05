@@ -837,26 +837,31 @@ export class CombatManager {
     ranges.sort((a, b) => a.range - b.range);
 
     ctx.save();
+    ctx.setLineDash([]);
     for (const r of ranges) {
-      ctx.beginPath();
-      ctx.arc(player.x, player.y, r.range, 0, Math.PI * 2);
-      
       if (r.isSelected) {
-        ctx.setLineDash([]);
-        ctx.strokeStyle = r.color;
-        ctx.lineWidth = 3;
-        ctx.shadowColor = r.color;
-        ctx.shadowBlur = 15;
-        ctx.stroke();
-        
-        ctx.fillStyle = r.color + '11'; // Very faint solid fill
+        // Layered alpha rings — no shadowBlur (avoids expensive per-frame Gaussian blur)
+        const glowWidths = [[12, '12'], [6, '30'], [2, 'cc']];
+        for (const [lw, hex] of glowWidths) {
+          ctx.strokeStyle = r.color + hex;
+          ctx.lineWidth = lw;
+          ctx.beginPath();
+          ctx.arc(player.x, player.y, r.range, 0, Math.PI * 2);
+          ctx.stroke();
+        }
+        // Very faint fill
+        ctx.fillStyle = r.color + '09';
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, r.range, 0, Math.PI * 2);
         ctx.fill();
       } else {
-        ctx.shadowBlur = 0;
         ctx.setLineDash([4, 8]);
-        ctx.strokeStyle = r.color + '33'; // More transparent
+        ctx.strokeStyle = r.color + '33';
         ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(player.x, player.y, r.range, 0, Math.PI * 2);
         ctx.stroke();
+        ctx.setLineDash([]);
       }
     }
     ctx.restore();
