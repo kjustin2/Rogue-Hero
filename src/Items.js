@@ -23,6 +23,14 @@ export const ItemDefinitions = {
   abyss_heart:    { id: 'abyss_heart',    name: 'Abyss Heart',    rarity: 'rare',     color: '#ff2266', desc: '+1 max HP each time you defeat a boss' },
   quick_hands:    { id: 'quick_hands',    name: 'Quick Hands',    rarity: 'uncommon', color: '#44ffcc', desc: 'AP regenerates 40% faster' },
   deep_well:      { id: 'deep_well',      name: 'Deep Well',      rarity: 'rare',     color: '#6644ff', desc: '+1 maximum AP capacity (5 → 6)' },
+
+  // ── CHARACTER-EXCLUSIVE RELICS ────────────────────────────────────
+  berserker_heart:  { id: 'berserker_heart',  name: 'Berserker Heart',  rarity: 'rare',     color: '#ff4422', desc: '[BLADE] Each crash resets to 80 and adds +1 combo stack.', charSpecific: 'blade' },
+  ice_veil:         { id: 'ice_veil',          name: 'Ice Veil',         rarity: 'uncommon', color: '#88ccff', desc: '[FROST] Taking damage at COLD Tempo blocks 50% of it once per room.', charSpecific: 'frost' },
+  shadow_cloak:     { id: 'shadow_cloak',      name: 'Shadow Cloak',     rarity: 'rare',     color: '#cc44ff', desc: '[SHADOW] First attack after a perfect dodge deals 3× damage.', charSpecific: 'shadow' },
+  resonance_crystal:{ id: 'resonance_crystal', name: 'Resonance Crystal', rarity: 'rare',    color: '#00ffdd', desc: '[ECHO] Resonance zone widens to ±15 of 50 Tempo.', charSpecific: 'echo' },
+  lifesteal_fang:   { id: 'lifesteal_fang',    name: 'Lifesteal Fang',   rarity: 'rare',     color: '#ff2255', desc: '[WRAITH] Every 3rd kill at ≤2 HP heals 2 HP instead of 1.', charSpecific: 'wraith' },
+  iron_colossus:    { id: 'iron_colossus',      name: 'Iron Colossus',    rarity: 'rare',     color: '#ddaa22', desc: '[VANGUARD] At max Guard stacks, incoming damage reduced by 1.', charSpecific: 'vanguard' },
 };
 
 export class ItemManager {
@@ -44,6 +52,7 @@ export class ItemManager {
 
   resetRoom() {
     this.coldBloodUsedThisRoom = false;
+    this.iceVeilUsedThisRoom = false;
   }
 
   update(dt) {
@@ -136,7 +145,7 @@ export class ItemManager {
   }
 
   // On enemy kill callback
-  onKill(tempoValue, player) {
+  onKill(tempoValue, player, killCount) {
     if (this.has('sustained')) {
       this.sustainedTimer = 2.0;
       events.emit('RELIC_ACTIVATED', { name: 'Sustained', text: 'NO DECAY' });
@@ -147,7 +156,37 @@ export class ItemManager {
       events.emit('RELIC_ACTIVATED', { name: 'Cold Blood', text: '+1 HP' });
       return true;
     }
+    // Lifesteal Fang: every 3rd kill at ≤2 HP heals 2 HP
+    if (this.has('lifesteal_fang') && player.hp <= 2) {
+      this._lifestealKills = (this._lifestealKills || 0) + 1;
+      if (this._lifestealKills >= 3) {
+        this._lifestealKills = 0;
+        player.heal(2);
+        events.emit('RELIC_ACTIVATED', { name: 'Lifesteal Fang', text: '+2 HP' });
+      }
+    }
     return false;
+  }
+
+  // On damage taken: returns reduced damage amount if Ice Veil activates
+  onDamageTaken(amount, tempoValue, player) {
+    if (this.has('ice_veil') && tempoValue < 30 && !this.iceVeilUsedThisRoom) {
+      this.iceVeilUsedThisRoom = true;
+      const blocked = Math.round(amount * 0.5);
+      events.emit('RELIC_ACTIVATED', { name: 'Ice Veil', text: `-${blocked} DMG BLOCKED` });
+      return amount - blocked;
+    }
+    return amount;
+  }
+
+  // Shadow Cloak: 3× damage after perfect dodge (used in Combat.applyDamageToEnemy)
+  isShadowCloakActive(player) {
+    return this.has('shadow_cloak') && player._shadowCloakActive;
+  }
+
+  // Iron Colossus: damage reduction at max guard stacks
+  ironColossusReduction(guardStacks, maxGuardStacks) {
+    return this.has('iron_colossus') && guardStacks >= maxGuardStacks ? 1 : 0;
   }
 
   // On player death — Last Rites check
@@ -164,9 +203,15 @@ export class ItemManager {
     return false;
   }
 
-  // Generate 3 random item choices for post-combat reward
-  generateChoices(count = 3) {
-    const pool = Object.keys(ItemDefinitions).filter(id => !this.equipped.includes(id));
+  // Generate random item choices for post-combat reward.
+  // charId filters the pool: char-specific relics only appear for that character.
+  generateChoices(count = 3, charId = null) {
+    const pool = Object.keys(ItemDefinitions).filter(id => {
+      if (this.equipped.includes(id)) return false;
+      const def = ItemDefinitions[id];
+      if (def.charSpecific) return def.charSpecific === charId;
+      return true;
+    });
     pool.sort(() => Math.random() - 0.5);
     return pool.slice(0, Math.min(count, pool.length));
   }

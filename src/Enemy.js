@@ -44,6 +44,10 @@ export class Enemy extends Entity {
       this.buffTimer = Math.max(0, this.buffTimer - dt);
       if (this.buffTimer <= 0) { this.buffSpeedMult = 1.0; this.buffAttackMult = 1.0; }
     }
+    // Elite regeneration
+    if (this.regenRate && this.hp > 0 && this.hp < this.maxHp) {
+      this.hp = Math.min(this.maxHp, this.hp + this.regenRate * dt);
+    }
   }
 
   stagger(dur) {
@@ -51,7 +55,25 @@ export class Enemy extends Entity {
     if (this.state === 'telegraph') this.state = 'chase';
   }
 
+  // Apply an elite modifier (call once after construction in spawnEnemies)
+  applyEliteModifier(mod) {
+    this.eliteMod = mod;
+    if (mod === 'armored') {
+      this.armorMult = 0.5;        // takes 50% damage
+      this.hp = Math.round(this.hp * 1.3);
+      this.maxHp = this.hp;
+    } else if (mod === 'berserk') {
+      this.difficultySpdMult *= 1.35;  // faster
+      this.berserkDmgMult = 1.5;       // hits harder (applied in emit)
+    } else if (mod === 'regenerating') {
+      this.regenRate = 4;              // 4 HP/sec
+      this.hp = Math.round(this.hp * 1.2);
+      this.maxHp = this.hp;
+    }
+  }
+
   takeDamage(amount) {
+    if (this.armorMult) amount = Math.max(1, Math.round(amount * this.armorMult));
     if (this.marked) { amount = Math.round(amount * 2); this.marked = false; }
     this.hp -= amount;
     this.hitFlash = 0.12;
@@ -153,6 +175,22 @@ export class Enemy extends Entity {
     ctx.textAlign = 'center';
     ctx.fillText(label, this.x, this.y - this.r - 20);
     this.drawHealthBar(ctx, color);
+
+    // Elite modifier glow ring + badge
+    if (this.eliteMod) {
+      const modColor = this.eliteMod === 'armored' ? '#aaaacc' : (this.eliteMod === 'berserk' ? '#ff2200' : '#44ff44');
+      const modTag   = this.eliteMod === 'armored' ? 'ARMORED' : (this.eliteMod === 'berserk' ? 'BERSERK' : 'REGEN');
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r + 5, 0, Math.PI * 2);
+      ctx.strokeStyle = modColor;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = modColor;
+      ctx.font = 'bold 9px monospace';
+      ctx.fillText(modTag, this.x, this.y - this.r - 32);
+    }
   }
 
   // Draw intent icon above enemy when telegraphing
@@ -420,7 +458,7 @@ export class Turret extends Enemy {
     const targetAngle = Math.atan2(dy, dx);
     this.aimAngle += (targetAngle - this.aimAngle) * 3 * dt;
 
-    if (this.state === 'idle' && Math.sqrt(dx*dx+dy*dy) < 600) this.state = 'chase';
+    if (this.state === 'idle' && dx*dx+dy*dy < 360000) this.state = 'chase';
 
     if (this.state === 'chase' && this.attackCooldown <= 0) {
       this.state = 'telegraph';
@@ -2626,5 +2664,238 @@ export class Timekeeper extends Enemy {
   draw(ctx, now) {
     if (!this.alive) return;
     this.drawBody(ctx, 'TIMEKEEPER', '#3a1a6a', now);
+  }
+}
+
+// ── SENTINEL ───────────────────────────────────────────────────────
+// Stationary turret that fires rotating cross patterns. Rewards movement.
+export class Sentinel extends Enemy {
+  constructor(x, y) {
+    super(x, y, 18, 150, 'sentinel');
+    this.rotAngle = Math.random() * Math.PI * 2;
+    this.telegraphDuration = 1.2;
+    this.phase = 1;
+    this._fireTimer = 3.2;
+    this._chargePct = 0;
+  }
+
+  updateLogic(dt, player, tempo, roomMap, allEnemies, projMgr) {
+    if (!this.alive) return;
+    if (this.updateSpawn(dt)) return;
+    this.updateTimers(dt);
+    if (this.staggerTimer > 0) { this.staggerTimer -= dt; return; }
+
+    if (this.phase === 1 && this.hp <= this.maxHp * 0.5) {
+      this.phase = 2;
+      this.rotAngle += Math.PI / 4;
+    }
+
+    this.rotAngle += dt * (this.phase === 2 ? 0.7 : 0.45);
+
+    if (this.state !== 'telegraph') {
+      this._fireTimer -= dt;
+      if (this._fireTimer <= 0) {
+        this._fireTimer = this.phase === 2 ? 2.2 : 3.0;
+        this.state = 'telegraph';
+        this.telegraphTimer = this.telegraphDuration;
+        this._chargePct = 0;
+      }
+    }
+
+    if (this.state === 'telegraph') {
+      this.telegraphTimer -= dt;
+      this._chargePct = 1 - (this.telegraphTimer / this.telegraphDuration);
+      if (this.telegraphTimer <= 0) {
+        this.state = 'idle';
+        const count = this.phase === 2 ? 8 : 4;
+        if (projMgr) {
+          for (let i = 0; i < count; i++) {
+            const angle = this.rotAngle + (i / count) * Math.PI * 2;
+            projMgr.spawn(this.x, this.y, Math.cos(angle), Math.sin(angle), 230, 2, '#ff8800', 'sentinel');
+          }
+        }
+        this._chargePct = 0;
+      }
+    }
+    // Sentinel never moves
+  }
+
+  drawTelegraph(ctx, now) {
+    if (this.state === 'telegraph') {
+      const pct = this._chargePct;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.r * (1 + pct * 0.6), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(255,140,0,${0.3 + pct * 0.5})`;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+    }
+  }
+
+  draw(ctx, now) {
+    if (!this.alive) return;
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.rotAngle);
+    const side = this.r * 2;
+    ctx.fillStyle = this.hitFlash > 0 ? '#ffffff' : '#ff8800';
+    ctx.fillRect(-side / 2, -side / 2, side, side);
+    ctx.fillStyle = this.hitFlash > 0 ? '#ffffff' : '#cc5500';
+    ctx.fillRect(0, -4, this.r + 6, 8);
+    if (this.phase === 2) {
+      for (let i = 1; i < 4; i++) {
+        ctx.save();
+        ctx.rotate((i / 4) * Math.PI * 2);
+        ctx.fillRect(0, -3, this.r + 5, 6);
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('SENTINEL', this.x, this.y - this.r - 20);
+    this.drawHealthBar(ctx, '#ff8800');
+    this._drawIntentIcon(ctx, now);
+  }
+}
+
+// ── BOSS: THE ARCHIVIST ────────────────────────────────────────────
+// Copies the last card the player played and mirrors its attack pattern.
+export class BossArchivist extends Enemy {
+  constructor(x, y) {
+    super(x, y, 34, 800, 'boss_archivist');
+    this.phase = 1;
+    this._angle = 0;
+    this._attackTimer = 2.5;
+    this._telegraphing = false;
+    this._telegraphTimer = 0;
+    this._telegraphDuration = 1.6;
+    this._attackCooldown = 0;
+    this._copiedColor = '#aa88ff';
+    this._copiedName = '???';
+    this._copiedType = null;
+
+    this._onCardPlayed = ({ cardType, cardColor, cardName }) => {
+      this._copiedColor = cardColor || '#aa88ff';
+      this._copiedName = cardName || '???';
+      this._copiedType = cardType || null;
+    };
+    events.on('CARD_PLAYED', this._onCardPlayed);
+  }
+
+  updateLogic(dt, player, tempo, roomMap, allEnemies, projMgr) {
+    if (!this.alive) {
+      events.off('CARD_PLAYED', this._onCardPlayed);
+      return;
+    }
+    if (this.updateSpawn(dt)) return;
+    this.hitFlash = Math.max(0, this.hitFlash - dt);
+    this._angle += dt * 1.1;
+    if (this.staggerTimer > 0) { this.staggerTimer -= dt; return; }
+
+    if (this.phase === 1 && this.hp <= this.maxHp * 0.6) {
+      this.phase = 2;
+      events.emit('SCREEN_SHAKE', { duration: 0.4, intensity: 0.6 });
+      events.emit('PLAY_SOUND', 'crash');
+    }
+    if (this.phase === 2 && this.hp <= this.maxHp * 0.25) {
+      this.phase = 3;
+      events.emit('SCREEN_SHAKE', { duration: 0.5, intensity: 0.9 });
+      events.emit('PLAY_SOUND', 'crash');
+    }
+
+    const dx = player.x - this.x, dy = player.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+
+    if (this._telegraphing) {
+      this._telegraphTimer -= dt;
+      if (this._telegraphTimer <= 0) {
+        this._telegraphing = false;
+        this._doAttack(player, projMgr, dist, dx, dy);
+        this._attackTimer = 2.2 - this.phase * 0.25;
+      }
+      return;
+    }
+
+    // Orbit around player
+    const targetDist = 200 + this.phase * 20;
+    const spd = (85 + this.phase * 18) * this.spdMult();
+    if (dist > targetDist + 30) {
+      this.x += (dx / dist) * spd * dt;
+      this.y += (dy / dist) * spd * dt;
+    } else if (dist < targetDist - 30) {
+      this.x -= (dx / dist) * spd * dt;
+      this.y -= (dy / dist) * spd * dt;
+    } else {
+      const perp = { x: -dy / dist, y: dx / dist };
+      this.x += perp.x * spd * 0.55 * dt;
+      this.y += perp.y * spd * 0.55 * dt;
+    }
+
+    this._attackTimer -= dt;
+    if (this._attackTimer <= 0) {
+      this._telegraphing = true;
+      this._telegraphTimer = this._telegraphDuration;
+    }
+
+    if (roomMap) { const c = roomMap.clamp(this.x, this.y, this.r); this.x = c.x; this.y = c.y; }
+  }
+
+  _doAttack(player, projMgr, dist, dx, dy) {
+    if (!projMgr) return;
+    const count = this.phase === 3 ? 7 : (this.phase === 2 ? 5 : 3);
+    const rangedTypes = new Set(['shot', 'projectile', 'beam', 'ground', 'orbit', 'trap', 'echo', 'sigil']);
+    if (this._copiedType && rangedTypes.has(this._copiedType)) {
+      // Radial burst
+      for (let i = 0; i < count + 2; i++) {
+        const angle = (i / (count + 2)) * Math.PI * 2 + this._angle;
+        projMgr.spawn(this.x, this.y, Math.cos(angle), Math.sin(angle), 250, 2, this._copiedColor, 'archivist');
+      }
+    } else {
+      // Aimed spread toward player
+      const baseAngle = Math.atan2(player.y - this.y, player.x - this.x);
+      for (let i = 0; i < count; i++) {
+        const angle = baseAngle + (i - (count - 1) / 2) * 0.38;
+        projMgr.spawn(this.x, this.y, Math.cos(angle), Math.sin(angle), 240, 2, this._copiedColor, 'archivist');
+      }
+      if (dist < this.r + 70) {
+        events.emit('ENEMY_MELEE_HIT', { damage: 3 + this.phase, source: this });
+      }
+    }
+  }
+
+  drawTelegraph(ctx, now) {
+    if (!this._telegraphing) return;
+    const pct = 1 - (this._telegraphTimer / this._telegraphDuration);
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.r + 15 + pct * 10, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(170,100,255,${0.2 + pct * 0.5})`;
+    ctx.lineWidth = 2 + pct * 2;
+    ctx.stroke();
+    if (this._copiedType) {
+      ctx.fillStyle = this._copiedColor;
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`COPYING: ${this._copiedName}`, this.x, this.y - this.r - 34);
+    }
+  }
+
+  draw(ctx, now) {
+    if (!this.alive) return;
+    const pr = this.r + 12 + Math.sin(this._angle * 2) * 5;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, pr, 0, Math.PI * 2);
+    ctx.strokeStyle = this._copiedType ? this._copiedColor : `rgba(170,100,255,0.4)`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    this.drawBody(ctx, 'ARCHIVIST', '#6622aa', now);
+
+    if (this._copiedType) {
+      ctx.fillStyle = this._copiedColor;
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`[${this._copiedName}]`, this.x, this.y + 5);
+    }
   }
 }

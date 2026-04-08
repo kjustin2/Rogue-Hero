@@ -648,8 +648,8 @@ export class UI {
       }
     }
 
-    const GAP = 12;
-    const CARD_W = 140, CARD_H = 168;
+    const GAP = 14;
+    const CARD_W = 175, CARD_H = 215;
     const COLS = Math.floor((this.width - 60) / (CARD_W + GAP));
     const totalW = COLS * (CARD_W + GAP) - GAP;
     const startX = (this.width - totalW) / 2;
@@ -681,29 +681,29 @@ export class UI {
 
       if (isEquipped) {
         ctx.fillStyle = PAL.GOLD;
-        ctx.font = 'bold 10px monospace';
+        ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`SLOT ${equippedSlot + 1}`, x + CARD_W - 5, y + 13);
+        ctx.fillText(`SLOT ${equippedSlot + 1}`, x + CARD_W - 5, y + 16);
       }
       ctx.textAlign = 'center';
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 13px monospace';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 24);
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText(def.name, x + CARD_W / 2, y + 30);
       ctx.fillStyle = rarCol;
-      ctx.font = '10px monospace';
-      ctx.fillText((def.rarity || 'common').toUpperCase(), x + CARD_W / 2, y + 37);
+      ctx.font = '13px monospace';
+      ctx.fillText((def.rarity || 'common').toUpperCase(), x + CARD_W / 2, y + 47);
       ctx.fillStyle = '#44aaff';
-      ctx.font = '11px monospace';
-      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 51);
+      ctx.font = '14px monospace';
+      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 65);
       ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 65);
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 83);
       ctx.fillStyle = def.color || '#888';
-      ctx.font = 'bold 10px monospace';
-      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 80);
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 103);
       ctx.fillStyle = PAL.MUTED;
-      ctx.font = '10px monospace';
-      this._wrapText(ctx, def.desc, x + 6, y + 96, CARD_W - 12, 13);
+      ctx.font = '12px monospace';
+      this._wrapText(ctx, def.desc, x + 8, y + 123, CARD_W - 16, 16);
       this.prepBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
     }
 
@@ -904,7 +904,7 @@ export class UI {
     ctx.font = '13px monospace';
     ctx.fillText('+50% damage per upgrade (max 2)', this.width / 2, 105);
 
-    const CARD_W = 165, CARD_H = 130, GAP = 16;
+    const CARD_W = 220, CARD_H = 175, GAP = 20;
     const totalW = choices.length * CARD_W + (choices.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
     const startY = 135;
@@ -926,26 +926,26 @@ export class UI {
       ctx.strokeRect(x, y, CARD_W, CARD_H);
 
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 15px monospace';
+      ctx.font = 'bold 20px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 28);
+      ctx.fillText(def.name, x + CARD_W / 2, y + 38);
 
       ctx.fillStyle = PAL.HOT;
-      ctx.font = '12px monospace';
-      ctx.fillText(`Lv ${level + 1} → ${level + 2}`, x + CARD_W / 2, y + 50);
+      ctx.font = '16px monospace';
+      ctx.fillText(`Lv ${level + 1} → ${level + 2}`, x + CARD_W / 2, y + 65);
 
       const nextDmg = Math.round(this.cardDefs[cardId].damage * (1 + 0.5 * (level + 1)));
       ctx.fillStyle = PAL.FLOWING;
-      ctx.font = '13px monospace';
-      ctx.fillText(`${def.damage} → ${nextDmg} DMG`, x + CARD_W / 2, y + 72);
+      ctx.font = '17px monospace';
+      ctx.fillText(`${def.damage} → ${nextDmg} DMG`, x + CARD_W / 2, y + 97);
 
       ctx.fillStyle = PAL.MUTED;
-      ctx.font = '11px monospace';
-      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 92);
+      ctx.font = '14px monospace';
+      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 124);
 
       ctx.fillStyle = '#44ff88';
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText('CLICK TO UPGRADE', x + CARD_W / 2, y + CARD_H - 12);
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText('CLICK TO UPGRADE', x + CARD_W / 2, y + CARD_H - 14);
 
       this.upgradeBoxes = this.upgradeBoxes || [];
       this.upgradeBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
@@ -966,29 +966,54 @@ export class UI {
   }
 
   // ───────────── EVENT SCREEN ─────────────
-  drawEventScreen(ctx) {
+  // eventType: 'standard' | 'merchant' | 'blacksmith'
+  drawEventScreen(ctx, eventType) {
     ctx.fillStyle = 'rgba(0,0,0,0.9)';
     ctx.fillRect(0, 0, this.width, this.height);
-    ctx.fillStyle = '#ff88ff';
+
+    const TITLES = {
+      standard:   ['STRANGE ENCOUNTER', '#ff88ff', 'A mysterious figure offers you a deal...'],
+      merchant:   ['WANDERING MERCHANT', '#ffcc44', 'The merchant eyes your equipment hungrily...'],
+      blacksmith: ['THE BLACKSMITH',     '#ff8833', 'The forge glows hot. A blade awaits refinement.'],
+    };
+    const [title, titleColor, subtitle] = TITLES[eventType] || TITLES.standard;
+
+    ctx.fillStyle = titleColor;
     ctx.font = 'bold 32px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('STRANGE ENCOUNTER', this.width / 2, 75);
+    ctx.fillText(title, this.width / 2, 75);
     ctx.fillStyle = '#ccc';
     ctx.font = '15px monospace';
-    ctx.fillText('A mysterious figure offers you a deal...', this.width / 2, 130);
+    ctx.fillText(subtitle, this.width / 2, 130);
 
-    const options = [
-      { label: 'Trade 1 HP → Random Relic', key: '1', color: '#ff6666' },
-      { label: 'Rest: Heal 2 HP', key: '2', color: PAL.FLOWING },
-      { label: 'Gamble: 50% chance +2 HP or −1 HP', key: '3', color: PAL.HOT },
-    ];
+    let options;
+    if (eventType === 'merchant') {
+      options = [
+        { label: 'Sell your oldest card → +3 HP', key: '1', color: '#ffcc44' },
+        { label: 'Trade 1 HP → Random Relic',      key: '2', color: '#ff6666' },
+        { label: 'Pass — touch nothing',           key: '3', color: '#667788' },
+      ];
+    } else if (eventType === 'blacksmith') {
+      options = [
+        { label: 'Upgrade any card for FREE',   key: '1', color: '#ff8833' },
+        { label: 'Heal 1 HP — the forge\'s warmth', key: '2', color: PAL.FLOWING },
+        { label: 'Pass — leave the forge',      key: '3', color: '#667788' },
+      ];
+    } else {
+      options = [
+        { label: 'Trade 1 HP → Random Relic',       key: '1', color: '#ff6666' },
+        { label: 'Rest: Heal 2 HP',                  key: '2', color: PAL.FLOWING },
+        { label: 'Gamble: 50% +2 HP or −1 HP',       key: '3', color: PAL.HOT },
+      ];
+    }
+
     this.eventBoxes = [];
     for (let i = 0; i < options.length; i++) {
-      const y = 190 + i * 72;
+      const y = 190 + i * 76;
       const opt = options[i];
       ctx.fillStyle = PAL.UI_PANEL;
       ctx.beginPath();
-      ctx.roundRect(this.width / 2 - 230, y, 460, 58, 8);
+      ctx.roundRect(this.width / 2 - 250, y, 500, 62, 8);
       ctx.fill();
       ctx.strokeStyle = opt.color;
       ctx.lineWidth = 2;
@@ -996,8 +1021,8 @@ export class UI {
       ctx.fillStyle = opt.color;
       ctx.font = 'bold 18px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(`[${opt.key}] ${opt.label}`, this.width / 2, y + 36);
-      this.eventBoxes.push({ x: this.width / 2 - 230, y, w: 460, h: 58, index: i });
+      ctx.fillText(`[${opt.key}] ${opt.label}`, this.width / 2, y + 38);
+      this.eventBoxes.push({ x: this.width / 2 - 250, y, w: 500, h: 62, index: i });
     }
   }
 
@@ -1021,7 +1046,7 @@ export class UI {
     ctx.font = '14px monospace';
     ctx.fillText('Cost: 1 HP per card. Click to buy.', this.width / 2, 88);
 
-    const CARD_W = 155, CARD_H = 165, GAP = 20;
+    const CARD_W = 200, CARD_H = 215, GAP = 24;
     const totalW = shopCards.length * CARD_W + (shopCards.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
     const startY = 118;
@@ -1040,18 +1065,18 @@ export class UI {
       ctx.strokeRect(x, y, CARD_W, CARD_H);
 
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 15px monospace';
+      ctx.font = 'bold 19px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 28);
+      ctx.fillText(def.name, x + CARD_W / 2, y + 35);
       ctx.fillStyle = '#ff6666';
-      ctx.font = 'bold 13px monospace';
-      ctx.fillText('1 HP', x + CARD_W / 2, y + 50);
+      ctx.font = 'bold 17px monospace';
+      ctx.fillText('1 HP', x + CARD_W / 2, y + 62);
       ctx.fillStyle = '#44aaff';
-      ctx.font = '12px monospace';
-      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 70);
+      ctx.font = '15px monospace';
+      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 87);
       ctx.fillStyle = PAL.MUTED;
-      ctx.font = '10px monospace';
-      this._wrapText(ctx, def.desc, x + 10, y + 94, CARD_W - 20, 13);
+      ctx.font = '13px monospace';
+      this._wrapText(ctx, def.desc, x + 12, y + 115, CARD_W - 24, 16);
       this.shopBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId: shopCards[i] });
     }
 
@@ -1336,7 +1361,7 @@ export class UI {
       ctx.fillText(`New card: ${newDef.name} (${newDef.cost}AP, ${newDef.type}) — click an existing card to replace it`, this.width / 2, 116);
     }
 
-    const CARD_W = 130, CARD_H = 160, GAP = 12;
+    const CARD_W = 165, CARD_H = 205, GAP = 14;
     const all = this.deckManager.collection;
     const totalW = all.length * CARD_W + (all.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
@@ -1361,26 +1386,26 @@ export class UI {
       ctx.strokeRect(x, y, CARD_W, CARD_H);
 
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 13px monospace';
+      ctx.font = 'bold 17px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 22);
+      ctx.fillText(def.name, x + CARD_W / 2, y + 28);
       ctx.fillStyle = '#44aaff';
-      ctx.font = '11px monospace';
-      ctx.fillText(`${def.cost}AP | ${def.range}px`, x + CARD_W / 2, y + 38);
+      ctx.font = '14px monospace';
+      ctx.fillText(`${def.cost}AP | ${def.range}px`, x + CARD_W / 2, y + 49);
       ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
-      ctx.font = '10px monospace';
-      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 53);
+      ctx.font = '13px monospace';
+      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 68);
       ctx.fillStyle = def.color || '#888';
-      ctx.font = 'bold 9px monospace';
-      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 66);
+      ctx.font = 'bold 12px monospace';
+      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 86);
       ctx.fillStyle = PAL.MUTED;
-      ctx.font = '9px monospace';
-      this._wrapText(ctx, def.desc, x + 5, y + 80, CARD_W - 10, 11);
+      ctx.font = '12px monospace';
+      this._wrapText(ctx, def.desc, x + 8, y + 105, CARD_W - 16, 15);
 
       if (isHovered) {
         ctx.fillStyle = PAL.CRITICAL;
-        ctx.font = 'bold 11px monospace';
-        ctx.fillText('DISCARD THIS', x + CARD_W / 2, y + CARD_H - 10);
+        ctx.font = 'bold 14px monospace';
+        ctx.fillText('DISCARD THIS', x + CARD_W / 2, y + CARD_H - 12);
       }
 
       this.discardBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });

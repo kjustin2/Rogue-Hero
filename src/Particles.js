@@ -53,16 +53,35 @@ export class ParticleSystem {
   }
 
   draw(ctx, canvasW, canvasH) {
-    // Particles
-    for (const p of this.particles) {
-      const alpha = p.life / p.maxLife;
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = p.color;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.r * alpha, 0, Math.PI * 2);
-      ctx.fill();
+    // Particles — grouped by (color, alpha-bucket) to batch draw calls.
+    // Alpha is rounded to nearest 5% so nearby-lifetime particles share a path.
+    if (this.particles.length > 0) {
+      // Build groups without per-frame allocation: reuse a plain object as map.
+      const groups = {};
+      const cW = canvasW || 9999, cH = canvasH || 9999;
+      for (const p of this.particles) {
+        // Skip particles entirely outside the canvas
+        if (p.x + p.r < 0 || p.x - p.r > cW || p.y + p.r < 0 || p.y - p.r > cH) continue;
+        const alpha = Math.round((p.life / p.maxLife) * 20) / 20; // 0.05 granularity
+        const key = p.color + '|' + alpha;
+        if (groups[key]) { groups[key].list.push(p); }
+        else { groups[key] = { color: p.color, alpha, list: [p] }; }
+      }
+      for (const key in groups) {
+        const g = groups[key];
+        ctx.fillStyle = g.color;
+        ctx.globalAlpha = g.alpha;
+        ctx.beginPath();
+        for (const p of g.list) {
+          const r = p.r * g.alpha;
+          if (r <= 0) continue;
+          ctx.moveTo(p.x + r, p.y);
+          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+        }
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1.0;
     }
-    ctx.globalAlpha = 1.0;
 
     // Damage numbers
     for (const t of this.texts) {

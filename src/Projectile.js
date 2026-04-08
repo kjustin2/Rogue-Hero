@@ -15,7 +15,9 @@ class Projectile {
     this.r = 5;
     this.alive = true;
     this.life = life || 2.0;
-    this.trail = [];
+    // Fixed-size ring buffer for trail (avoids Array.shift() copies each frame)
+    this.trail = [null, null, null];
+    this._trailIdx = 0;
     this.nearMissTriggered = false;
 
     // Meta props
@@ -59,9 +61,9 @@ export class ProjectileManager {
       p.life -= dt;
       if (p.life <= 0) { this._remove(i); continue; }
 
-      // Store trail point (capped at 3 for performance)
-      p.trail.push({ x: p.x, y: p.y });
-      if (p.trail.length > 3) p.trail.shift();
+      // Store trail point using ring buffer (no Array.shift() copies)
+      p.trail[p._trailIdx] = { x: p.x, y: p.y };
+      p._trailIdx = (p._trailIdx + 1) % 3;
 
       p.x += p.dx * p.speed * dt;
       p.y += p.dy * p.speed * dt;
@@ -167,14 +169,15 @@ export class ProjectileManager {
 
   draw(ctx) {
     for (const p of this.projectiles) {
-      // Trail
-      for (let i = 0; i < p.trail.length; i++) {
+      // Trail (ring buffer — iterate in insertion order, skip null slots)
+      ctx.fillStyle = p.color;
+      for (let i = 0; i < 3; i++) {
         const t = p.trail[i];
-        const alpha = (i / p.trail.length) * 0.3;
+        if (!t) continue;
+        const age = ((i - p._trailIdx + 3) % 3) + 1; // 1=newest-1, 3=oldest
+        ctx.globalAlpha = (1 - age / 3) * 0.3;
         ctx.beginPath();
         ctx.arc(t.x, t.y, p.r * 0.6, 0, Math.PI * 2);
-        ctx.fillStyle = p.color;
-        ctx.globalAlpha = alpha;
         ctx.fill();
       }
       ctx.globalAlpha = 1;

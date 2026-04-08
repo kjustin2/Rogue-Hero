@@ -3,7 +3,7 @@ import { EventBus, events } from './EventBus.js';
 import { InputManager } from './Input.js';
 import { Renderer } from './Renderer.js';
 import { Player } from './player.js';
-import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, Phantom, Blocker, Bomber, Marksman, BossBrawler, BossConductor, BossEcho, BossNecromancer, BossApex, Shrieker, Juggernaut, Stalker, Splitter, Split, Corruptor, BerserkerEnemy, RicochetDrone, Timekeeper, Disruptor } from './Enemy.js';
+import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, Phantom, Blocker, Bomber, Marksman, BossBrawler, BossConductor, BossEcho, BossNecromancer, BossApex, Shrieker, Juggernaut, Stalker, Splitter, Split, Corruptor, BerserkerEnemy, RicochetDrone, Timekeeper, Disruptor, Sentinel, BossArchivist } from './Enemy.js';
 import { TempoSystem } from './tempo.js';
 import { CombatManager } from './Combat.js';
 import { ParticleSystem } from './Particles.js';
@@ -70,6 +70,8 @@ let selectedCharId = null;
 let selectedDifficulty = 0;
 let totalHealedThisRun = 0;
 let newUnlocks = [];
+let currentEventType = 'standard'; // 'standard' | 'merchant' | 'blacksmith'
+let noDashCardsUsedThisRun = true; // for cross-run unlock tracking
 const FLOORS_TO_WIN = 5;
 
 // Active card slot (left-click fires this, right-click cycles)
@@ -330,7 +332,7 @@ events.on('SPAWN_ORBS', ({ count, radius, damage, life, speed, color, freeze, sp
       color,
       freeze,
       spiral,
-      hitCooldowns: new Map(),
+      hitCooldowns: new WeakMap(),
     });
   }
 });
@@ -441,6 +443,7 @@ function startNewRun() {
 
   roomsCleared = 0;
   totalHealedThisRun = 0;
+  noDashCardsUsedThisRun = true;
   newUnlocks = [];
   slowMoTimer = 0;
   slowMoScale = 1.0;
@@ -482,7 +485,12 @@ function spawnEnemies(node) {
       enemies.push(new ShieldDrone(cx - 100, cy + 60));
       enemies.push(new ShieldDrone(cx + 100, cy + 60));
     } else if (f === 3) {
-      enemies.push(new BossEcho(cx, cy));
+      // 30% chance to face The Archivist instead of BossEcho
+      if (Math.random() < 0.3) {
+        enemies.push(new BossArchivist(cx, cy));
+      } else {
+        enemies.push(new BossEcho(cx, cy));
+      }
     } else if (f === 4) {
       enemies.push(new BossNecromancer(cx, cy - 50));
       enemies.push(new Phantom(cx - 120, cy + 60));
@@ -494,8 +502,12 @@ function spawnEnemies(node) {
     }
   } else if (node.type === 'elite') {
     const eliteRoll = rng();
-    if (f >= 3 && eliteRoll < 0.35) enemies.push(new Juggernaut(cx + 60, cy));
-    else enemies.push(new Bruiser(cx + 60, cy));
+    const eliteEnemy = f >= 3 && eliteRoll < 0.35 ? new Juggernaut(cx + 60, cy) : new Bruiser(cx + 60, cy);
+    // Apply a random elite modifier
+    const modRoll = rng();
+    const modType = modRoll < 0.35 ? 'armored' : (modRoll < 0.7 ? 'berserk' : 'regenerating');
+    eliteEnemy.applyEliteModifier(modType);
+    enemies.push(eliteEnemy);
     const extra = 1 + Math.floor(f * 0.5);
     for (let i = 0; i < extra; i++) {
       if (f >= 4) enemies.push(rng() < 0.5 ? new Phantom(rndX(), rndY()) : new Blocker(rndX(), rndY()));
@@ -519,6 +531,7 @@ function spawnEnemies(node) {
       else if (f >= 4 && roll < 0.22) enemies.push(new Bomber(rndX(), rndY()));
       else if (f >= 3 && roll < 0.26) enemies.push(new Timekeeper(rndX(), rndY()));
       else if (f >= 3 && roll < 0.30) enemies.push(new BerserkerEnemy(rndX(), rndY()));
+      else if (f >= 2 && roll < 0.33) enemies.push(new Sentinel(rndX(), rndY()));
       else if (f >= 3 && roll < 0.34) enemies.push(new Mirror(rndX(), rndY()));
       else if (f >= 2 && roll < 0.38) enemies.push(new Stalker(rndX(), rndY()));
       else if (f >= 2 && roll < 0.42) enemies.push(new RicochetDrone(rndX(), rndY()));
@@ -587,7 +600,7 @@ function spawnEnemies(node) {
     audio.playBGM('normal');
   }
   
-  console.log(`[Spawn] "${node.type}" F${f}: ${enemies.length} enemies [${enemies.map(e=>e.type).join(',')}]`);
+  if (window.DEBUG) console.log(`[Spawn] "${node.type}" F${f}: ${enemies.length} enemies [${enemies.map(e=>e.type).join(',')}]`);
 }
 
 function getAvailableCards() {
@@ -607,8 +620,13 @@ function getAvailableCards() {
 
 function generateDraft() {
   const available = getAvailableCards();
-  available.sort(() => Math.random() - 0.5);
-  draftChoices = available.slice(0, Math.min(3, available.length));
+  // Fisher-Yates partial shuffle — O(k) instead of O(N log N) sort
+  const k = Math.min(3, available.length);
+  for (let i = 0; i < k; i++) {
+    const j = i + Math.floor(Math.random() * (available.length - i));
+    const tmp = available[i]; available[i] = available[j]; available[j] = tmp;
+  }
+  draftChoices = available.slice(0, k);
   console.log(`[Draft] Offering: [${draftChoices.join(', ')}] (${available.length} avail)`);
   if (draftChoices.length === 0) return false;
   return true;
@@ -635,7 +653,7 @@ function pickDraft(idx) {
   tryAddCard(cardId, () => {
     // After draft — offer item reward every other room, upgrade every 3 rooms
     if (roomsCleared % 2 === 0) {
-      itemChoices = itemManager.generateChoices(3);
+      itemChoices = itemManager.generateChoices(3, selectedCharId);
       if (itemChoices.length > 0) { gameState = 'itemReward'; return; }
     }
     if (roomsCleared > 0 && roomsCleared % 3 === 0) {
@@ -695,6 +713,25 @@ function checkRunUnlocks(won) {
       }
     }
   }
+
+  // Cross-run achievement unlocks
+  if (won && noDashCardsUsedThisRun && meta.setAchievement('win_no_dash')) {
+    // Unlock cursed cards pool
+    const cursedPool = ['soul_siphon', 'void_hex', 'cursed_spiral', 'forbidden_surge'];
+    for (const cid of cursedPool) {
+      if (!meta.isBonusCardUnlocked(cid)) {
+        meta.unlockBonusCard(cid);
+        newUnlocks.push(`Achievement: No-Dash Win! Unlocked cursed card: ${CardDefinitions[cid]?.name || cid}`);
+      }
+    }
+  }
+  if (runStats.perfectDodges >= 15 && meta.setAchievement('dodge_master')) {
+    newUnlocks.push('Achievement: Dodge Master (15 perfect dodges in one run)!');
+  }
+  if (runStats.highestCombo >= 10 && meta.setAchievement('combo_king')) {
+    newUnlocks.push('Achievement: Combo King (10+ hit combo)!');
+  }
+
   if (newUnlocks.length > 0) console.log('[Meta] Unlocks:', newUnlocks);
 }
 
@@ -836,26 +873,65 @@ function _fireChannelTick(ch, dmgMult) {
 }
 
 function handleEvent(choiceIdx) {
-  switch (choiceIdx) {
-    case 0: // Trade 1 HP → random relic
-      if (player.hp > 1) {
-        player.hp--;
-        const choices = itemManager.generateChoices(1);
-        if (choices.length > 0) {
-          itemManager.add(choices[0], player, tempo);
-          runStats.itemsCollected++;
-          events.emit('PLAY_SOUND', 'itemPickup');
-          particles.spawnDamageNumber(player.x || 640, 300, `Got: ${ItemDefinitions[choices[0]].name}`);
+  if (currentEventType === 'merchant') {
+    switch (choiceIdx) {
+      case 0: // Sell oldest card for +3 HP
+        if (deckManager.collection.length > 1) {
+          const sold = deckManager.collection[0];
+          deckManager.removeCard(sold);
+          player.heal(3);
+          particles.spawnDamageNumber(player.x || 640, 300, `Sold "${CardDefinitions[sold]?.name || sold}" +3 HP`);
+          events.emit('PLAY_SOUND', 'upgrade');
         }
-      }
-      break;
-    case 1: // Heal 2 HP
-      player.heal(2);
-      break;
-    case 2: // Gamble
-      if (Math.random() < 0.5) { player.heal(2); }
-      else { player.hp = Math.max(1, player.hp - 1); }
-      break;
+        break;
+      case 1: // Trade 1 HP → relic
+        if (player.hp > 1) {
+          player.hp--;
+          const choices = itemManager.generateChoices(1, selectedCharId);
+          if (choices.length > 0) {
+            itemManager.add(choices[0], player, tempo);
+            runStats.itemsCollected++;
+            events.emit('PLAY_SOUND', 'itemPickup');
+            particles.spawnDamageNumber(player.x || 640, 300, `Got: ${ItemDefinitions[choices[0]].name}`);
+          }
+        }
+        break;
+      case 2: break; // pass
+    }
+  } else if (currentEventType === 'blacksmith') {
+    switch (choiceIdx) {
+      case 0: // Free upgrade
+        upgradeChoices = deckManager.getUpgradeChoices();
+        if (upgradeChoices.length > 0) { gameState = 'upgrade'; return; }
+        break;
+      case 1: // Forge warmth — heal 1 HP
+        player.heal(1);
+        break;
+      case 2: break; // pass
+    }
+  } else {
+    // Standard event
+    switch (choiceIdx) {
+      case 0: // Trade 1 HP → random relic
+        if (player.hp > 1) {
+          player.hp--;
+          const choices = itemManager.generateChoices(1, selectedCharId);
+          if (choices.length > 0) {
+            itemManager.add(choices[0], player, tempo);
+            runStats.itemsCollected++;
+            events.emit('PLAY_SOUND', 'itemPickup');
+            particles.spawnDamageNumber(player.x || 640, 300, `Got: ${ItemDefinitions[choices[0]].name}`);
+          }
+        }
+        break;
+      case 1: // Heal 2 HP
+        player.heal(2);
+        break;
+      case 2: // Gamble
+        if (Math.random() < 0.5) { player.heal(2); }
+        else { player.hp = Math.max(1, player.hp - 1); }
+        break;
+    }
   }
   gameState = 'map';
 }
@@ -899,6 +975,7 @@ function update(logicDt, realDt) {
           else if (b.action === 'reset_confirm') { introResetConfirm = true; }
           else if (b.action === 'reset_do') { meta.resetAll(); introResetConfirm = false; }
           else if (b.action === 'reset_cancel') { introResetConfirm = false; }
+          else if (b.action === 'exit') { window.close(); }
           break;
         }
       }
@@ -945,11 +1022,17 @@ function update(logicDt, realDt) {
           restChoiceBoxes = [];
           gameState = 'rest';
         } else if (node.type === 'event') {
+          const r = Math.random();
+          currentEventType = r < 0.4 ? 'merchant' : (r < 0.7 ? 'blacksmith' : 'standard');
           gameState = 'event';
         } else if (node.type === 'shop') {
           const available = getAvailableCards();
-          available.sort(() => Math.random() - 0.5);
-          shopCards = available.slice(0, Math.min(4, available.length));
+          const sk = Math.min(4, available.length);
+          for (let i = 0; i < sk; i++) {
+            const j = i + Math.floor(Math.random() * (available.length - i));
+            const tmp = available[i]; available[i] = available[j]; available[j] = tmp;
+          }
+          shopCards = available.slice(0, sk);
           gameState = 'shop';
         } else {
           currentCombatNode = node;
@@ -1191,6 +1274,12 @@ function update(logicDt, realDt) {
     if (player.silenceTimer <= 0) player.silenced = false;
   }
 
+  // Update hand resonance type for combat bonuses — only recompute when hand changes
+  if (deckManager._resonanceDirty) {
+    player._resonanceType = deckManager.getHandResonanceType();
+    deckManager._resonanceDirty = false;
+  }
+
   // Left-click: use the currently selected card
   if (input.consumeClick()) {
     if (player.silenced) {
@@ -1204,6 +1293,7 @@ function update(logicDt, realDt) {
           combat.executeCard(player, def, input.mouse);
           runStats.cardsPlayed++;
           if (def.type !== 'echo') _lastCardPlayed = def;
+          if (def.type === 'dash') noDashCardsUsedThisRun = false;
         }
         else events.emit('PLAY_SOUND', 'miss');
       }
@@ -1844,11 +1934,28 @@ function render() {
       ctx.font = 'bold 14px monospace';
       ctx.textAlign = 'center';
       ctx.fillText('⚠  Reset All Progress', canvas.width / 2, rstY + 24);
+
+      // Exit button
+      const exitW = 200, exitH = 38;
+      const exitX = canvas.width / 2 - exitW / 2;
+      const exitY = rstY + rstH + 12;
+      ctx.fillStyle = '#0e0e1a';
+      ctx.beginPath();
+      ctx.roundRect(exitX, exitY, exitW, exitH, 6);
+      ctx.fill();
+      ctx.strokeStyle = '#555577';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = '#8888aa';
+      ctx.font = 'bold 14px monospace';
+      ctx.fillText('EXIT GAME', canvas.width / 2, exitY + 24);
+
       introBoxes = [
         { x: btnX, y: btnY, w: btnW, h: btnH, action: 'continue' },
         { x: vDownX, y: volY + 4, w: vBtnW, h: vBtnH, action: 'vol_down' },
         { x: vUpX, y: volY + 4, w: vBtnW, h: vBtnH, action: 'vol_up' },
-        { x: rstX, y: rstY, w: 240, h: 38, action: 'reset_confirm' },
+        { x: rstX, y: rstY, w: rstW, h: rstH, action: 'reset_confirm' },
+        { x: exitX, y: exitY, w: exitW, h: exitH, action: 'exit' },
       ];
     } else {
       ctx.fillStyle = '#ff5555';
@@ -2214,7 +2321,7 @@ function render() {
 
   // ── EVENT ──
   if (gameState === 'event') {
-    ui.drawEventScreen(renderer.ctx);
+    ui.drawEventScreen(renderer.ctx, currentEventType);
     return;
   }
 
@@ -2355,7 +2462,7 @@ function drawDraftScreen() {
   const hint = draftChoices.length < 3 ? `Only ${draftChoices.length} card(s) left to discover!` : 'Choose a new card for your deck.';
   ctx.fillText(hint, canvas.width / 2, 116);
 
-  const CARD_W = 210, CARD_H = 290, GAP = 44;
+  const CARD_W = 250, CARD_H = 340, GAP = 44;
   const count = draftChoices.length;
   const totalW = count * CARD_W + (count - 1) * GAP;
   const startX = (canvas.width - totalW) / 2;
@@ -2399,66 +2506,66 @@ function drawDraftScreen() {
 
     // Key hint + rarity badge
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.font = 'bold 13px monospace';
+    ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(`[${i + 1}]`, x + CARD_W - 10, startY + 20);
+    ctx.fillText(`[${i + 1}]`, x + CARD_W - 12, startY + 24);
 
     ctx.fillStyle = rarCol;
-    ctx.font = 'bold 10px monospace';
+    ctx.font = 'bold 13px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(rarLabel, x + 14, startY + 20);
+    ctx.fillText(rarLabel, x + 16, startY + 24);
 
     // Card name
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px monospace';
+    ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(def.name, x + CARD_W / 2, startY + 42);
+    ctx.fillText(def.name, x + CARD_W / 2, startY + 52);
 
     // Divider
     ctx.strokeStyle = (def.color || '#5588cc') + '88';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(x + 14, startY + 50); ctx.lineTo(x + CARD_W - 14, startY + 50); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x + 16, startY + 62); ctx.lineTo(x + CARD_W - 16, startY + 62); ctx.stroke();
 
     // AP badge
     ctx.fillStyle = '#44aaff';
     ctx.beginPath();
-    ctx.arc(x + 20, startY + 70, 15, 0, Math.PI * 2);
+    ctx.arc(x + 24, startY + 84, 17, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.font = 'bold 15px monospace';
+    ctx.font = 'bold 17px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText(def.cost, x + 20, startY + 75);
+    ctx.fillText(def.cost, x + 24, startY + 90);
 
     // Tempo shift
     ctx.fillStyle = def.tempoShift > 0 ? '#ffaa55' : '#55bbff';
-    ctx.font = 'bold 14px monospace';
+    ctx.font = 'bold 17px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' TEMPO', x + CARD_W / 2 + 10, startY + 78);
+    ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' TEMPO', x + CARD_W / 2 + 12, startY + 92);
 
     // Type + range
     ctx.fillStyle = def.color || '#888';
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, startY + 98);
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, startY + 116);
     ctx.fillStyle = '#667';
-    ctx.font = '11px monospace';
-    ctx.fillText(`${def.range}px range`, x + CARD_W / 2, startY + 113);
+    ctx.font = '13px monospace';
+    ctx.fillText(`${def.range}px range`, x + CARD_W / 2, startY + 134);
 
     // DMG
     if (def.damage > 0) {
       ctx.fillStyle = '#ff9988';
-      ctx.font = 'bold 16px monospace';
-      ctx.fillText(`${def.damage} DMG`, x + CARD_W / 2, startY + 138);
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(`${def.damage} DMG`, x + CARD_W / 2, startY + 164);
     }
 
     // Description
     ctx.fillStyle = '#bbbbc8';
-    ctx.font = '11px monospace';
-    ui._wrapText(ctx, def.desc, x + 12, startY + 165, CARD_W - 24, 15);
+    ctx.font = '13px monospace';
+    ui._wrapText(ctx, def.desc, x + 14, startY + 196, CARD_W - 28, 18);
 
     // Pick CTA
     ctx.fillStyle = rarCol;
-    ctx.font = 'bold 12px monospace';
-    ctx.fillText('CLICK TO PICK', x + CARD_W / 2, startY + CARD_H - 14);
+    ctx.font = 'bold 15px monospace';
+    ctx.fillText('CLICK TO PICK', x + CARD_W / 2, startY + CARD_H - 16);
 
     ctx.restore();
     draftBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, idx: i });

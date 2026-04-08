@@ -683,6 +683,33 @@ export const CardDefinitions = {
     desc: 'Toggle: Amp stance: all Tempo changes ×1.5. Damp stance: ×0.5.',
     bonusCard: true, stanceId: 'tempo_shift'
   },
+
+  // ── CURSED CARDS ──────────────────────────────────────────────────
+  // Cursed cards are powerful but carry a cost beyond AP.
+  soul_siphon: {
+    id: 'soul_siphon', name: 'Soul Siphon', cost: 0, tempoShift: 25, rarity: 'rare',
+    damage: 40, range: 90, type: 'melee', color: '#ff0044',
+    desc: 'CURSED: Free AP — but drains 2 HP. Devastating melee. +25 Tempo.',
+    cursed: true, hpCost: 2, bonusCard: true
+  },
+  void_hex: {
+    id: 'void_hex', name: 'Void Hex', cost: 3, tempoShift: -45, rarity: 'rare',
+    damage: 42, range: 180, type: 'projectile', color: '#440088',
+    desc: 'CURSED: Massive AoE — Tempo plunges -45. Power demands a price.',
+    cursed: true, bonusCard: true
+  },
+  cursed_spiral: {
+    id: 'cursed_spiral', name: 'Cursed Spiral', cost: 2, tempoShift: 18, rarity: 'rare',
+    damage: 18, range: 150, type: 'cleave', color: '#880000',
+    desc: 'CURSED: Cleaves ALL nearby. You take 1 HP per enemy struck.',
+    cursed: true, selfDamagePerHit: 1, bonusCard: true
+  },
+  forbidden_surge: {
+    id: 'forbidden_surge', name: 'Forbidden Surge', cost: 1, tempoShift: 45, rarity: 'rare',
+    damage: 0, range: 100, type: 'utility', color: '#8800ff',
+    desc: 'CURSED: Spike Tempo +45 instantly. Costs 3 HP. Use wisely.',
+    cursed: true, hpCost: 3, bonusCard: true
+  },
 };
 
 export class DeckManager {
@@ -698,6 +725,7 @@ export class DeckManager {
     this.collection = [...new Set(startingCardIds)];
     this.upgrades = {};
     this.hand = [null, null, null, null];
+    this._resonanceDirty = true;
     // Auto-fill hand, respecting slotWidth
     let slotCursor = 0;
     for (const id of this.collection) {
@@ -719,6 +747,7 @@ export class DeckManager {
     if (this.collection.includes(cardId)) return false;
     if (this.collection.length >= this.MAX_DECK_SIZE) return 'full';
     this.collection.push(cardId);
+    this._resonanceDirty = true;
     // Try to fill an empty hand slot
     const def = CardDefinitions[cardId];
     const sw = (def && def.slotWidth) || 1;
@@ -741,6 +770,7 @@ export class DeckManager {
     if (idx === -1) return false;
     this.collection.splice(idx, 1);
     delete this.upgrades[cardId];
+    this._resonanceDirty = true;
     // Clear from hand
     for (let i = 0; i < this.HAND_SIZE; i++) {
       if (this.hand[i] === cardId) {
@@ -831,6 +861,7 @@ export class DeckManager {
     for (let s = 1; s < sw; s++) {
       if (actualSlot + s < this.HAND_SIZE) this.hand[actualSlot + s] = '__wide';
     }
+    this._resonanceDirty = true;
   }
 
   isEquippedInOtherSlot(slotIndex, cardId) {
@@ -873,5 +904,20 @@ export class DeckManager {
       const level = this.upgrades[id] || 0;
       return level < 2;
     });
+  }
+
+  // Returns the card type that appears 3+ times in the current hand (for resonance bonus).
+  getHandResonanceType() {
+    const typeCounts = {};
+    for (const id of this.hand) {
+      if (!id || id === '__wide') continue;
+      const def = this.getCardDef(id);
+      if (!def) continue;
+      typeCounts[def.type] = (typeCounts[def.type] || 0) + 1;
+    }
+    for (const [type, count] of Object.entries(typeCounts)) {
+      if (count >= 3) return type;
+    }
+    return null;
   }
 }

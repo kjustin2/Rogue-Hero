@@ -74,6 +74,9 @@ export class TempoSystem {
       } else {
         this.setValue(this.value + Math.sign(diff) * moveSpeed, true);
       }
+    } else if (Math.abs(diff) > 0) {
+      // Snap to avoid perpetual sub-0.1 drift that could trigger zone checks every frame
+      this.value = this.targetValue;
     }
   }
 

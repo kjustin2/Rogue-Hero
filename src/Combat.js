@@ -8,6 +8,7 @@ export class CombatManager {
     this.projectiles = projectileManager || null;
     this.postDodgeCritActive = false;
     this.postDodgeCritTimer = 0;
+    this.lastCardType = null; // for synergy combos
 
     events.on('CRASH_ATTACK', ({ x, y, radius, dmg }) => {
       this.circularHitbox(x, y, radius, dmg, true);
@@ -111,7 +112,32 @@ export class CombatManager {
 
     player.budget -= cardDef.cost;
     this.tempo.setValue(this.tempo.value + cardDef.tempoShift);
-    const dmgMult = this.tempo.damageMultiplier();
+    let dmgMult = this.tempo.damageMultiplier();
+
+    // Synergy combo: bonus when this card type follows a specific previous type
+    const _prevType = this.lastCardType;
+    this.lastCardType = cardDef.type;
+    dmgMult *= this._getSynergyMult(_prevType, cardDef.type);
+
+    // Card resonance: 3+ cards of same type in hand = +20% damage of that type
+    if (player._resonanceType && player._resonanceType === cardDef.type) {
+      dmgMult *= 1.2;
+    }
+
+    // Cursed cards: HP cost (in addition to any other effects)
+    if (cardDef.cursed && cardDef.hpCost) {
+      player.takeDamage(cardDef.hpCost);
+      this.particles.spawnBurst(player.x, player.y, '#ff0044');
+      this.particles.spawnDamageNumber(player.x, player.y - 20, `-${cardDef.hpCost} HP CURSED`);
+    }
+    // Forbidden Surge: pure tempo + HP cost, no damage
+    if (cardDef.id === 'forbidden_surge') {
+      this.particles.spawnRing(player.x, player.y, 90, '#8800ff');
+      this.particles.spawnDamageNumber(player.x, player.y - 35, '+45 TEMPO!');
+      events.emit('PLAY_SOUND', 'crash');
+      events.emit('CARD_PLAYED', { cardType: cardDef.type, cardColor: cardDef.color, cardName: cardDef.name });
+      return true;
+    }
     const cardColor = cardDef.color || '#ffffff';
     const isCritical = this.tempo.value >= 90;
 
@@ -163,6 +189,7 @@ export class CombatManager {
       this.tempo._add(shift);
       this.particles.spawnRing(player.x, player.y, 60, '#44ffff');
       events.emit('PLAY_SOUND', 'hit');
+      events.emit('CARD_PLAYED', { cardType: cardDef.type, cardColor: cardDef.color, cardName: cardDef.name });
       return true;
     }
     // Berserker's Oath: lose 2 HP, set oath stacks
@@ -173,6 +200,7 @@ export class CombatManager {
       this.particles.spawnRing(player.x, player.y, 80, '#ff3300');
       this.particles.spawnDamageNumber(player.x, player.y - 30, 'OATH!');
       events.emit('PLAY_SOUND', 'heavyHit');
+      events.emit('CARD_PLAYED', { cardType: cardDef.type, cardColor: cardDef.color, cardName: cardDef.name });
       return true;
     }
     // Phase Step: invincibility bubble
@@ -182,8 +210,12 @@ export class CombatManager {
       player.dodgeCooldown = Math.max(player.dodgeCooldown, 0.5);
       this.particles.spawnBurst(player.x, player.y, '#ccaaff');
       events.emit('PLAY_SOUND', 'dodge');
+      events.emit('CARD_PLAYED', { cardType: cardDef.type, cardColor: cardDef.color, cardName: cardDef.name });
       return true;
     }
+
+    // Emit CARD_PLAYED so enemies like the Archivist can track the player's cards
+    events.emit('CARD_PLAYED', { cardType: cardDef.type, cardColor: cardDef.color, cardName: cardDef.name });
 
     // ── MELEE ──
     if (cardDef.type === 'melee') {
@@ -315,6 +347,7 @@ export class CombatManager {
       const dmg = Math.round(cardDef.damage * dmgMult * cleaveMult);
       const isColdZone = this.tempo.value < 30;
       let hitAny = false;
+      let cleaveHitCount = 0;
       // Helper to do one pass of the cleave
       const doCleavePass = () => {
         for (const e of this.enemies) {
@@ -326,10 +359,18 @@ export class CombatManager {
             this.applyDamageToEnemy(e, finalDmg);
             if (e.alive) e.stagger(0.15);
             hitAny = true;
+            cleaveHitCount++;
           }
         }
       };
       doCleavePass();
+      // Death Spiral: cursed cleave — player takes 1 HP per enemy struck
+      if (cardDef.selfDamagePerHit && cleaveHitCount > 0) {
+        const selfDmg = cardDef.selfDamagePerHit * cleaveHitCount;
+        player.takeDamage(selfDmg);
+        this.particles.spawnBurst(player.x, player.y, '#880000');
+        this.particles.spawnDamageNumber(player.x, player.y - 30, `-${selfDmg} HP SPIRAL`);
+      }
       // Frost Reave: double hit in COLD zone
       if (cardDef.coldDoubleHit && isColdZone) {
         doCleavePass();
@@ -798,6 +839,28 @@ export class CombatManager {
       events.emit('PLAY_SOUND', 'miss');
     }
     return true;
+  }
+
+  // Synergy multiplier: bonus damage when this card type follows a good previous type.
+  _getSynergyMult(prevType, curType) {
+    if (!prevType) return 1.0;
+    const key = `${prevType}+${curType}`;
+    const table = {
+      'stance+melee': 1.4, 'stance+cleave': 1.4, 'stance+dash': 1.35,
+      'dash+melee': 1.3, 'melee+dash': 1.25,
+      'shot+shot': 1.2, 'projectile+shot': 1.2, 'shot+projectile': 1.2,
+      'counter+melee': 1.4, 'counter+dash': 1.35,
+      'utility+melee': 1.2, 'utility+dash': 1.2, 'utility+shot': 1.2,
+    };
+    const mult = table[key] || 1.0;
+    if (mult > 1.0) {
+      this.particles.spawnDamageNumber(
+        this.player ? this.player.x : 0,
+        this.player ? this.player.y - 44 : 0,
+        'SYNERGY!'
+      );
+    }
+    return mult;
   }
 
   // Hot state dash-attack: dodge INTO enemy = contact damage
