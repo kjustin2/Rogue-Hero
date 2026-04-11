@@ -44,6 +44,9 @@ export class TempoSystem {
   }
 
   update(dt) {
+    // Track previous value for sigil zone-entry detection (LIKELY-03)
+    this.prevValue = this.value;
+
     // Crash recovery runs on game-time
     if (this.isCrashed) {
       this.crashRecoverTimer -= dt;
@@ -159,11 +162,12 @@ export class TempoSystem {
 
   _triggerColdCrash() {
     if (this.isCrashed) return;
-    // Cold crash: massive freeze AoE, reset tempo to 20
+    // Cold crash: massive freeze AoE, reset tempo to 20 (or 80 with Berserker Heart — BUG-04)
     events.emit('COLD_CRASH', { radius: 200, freezeDur: 3.0 });
     this.isCrashed = true;
-    this.value = 20;
-    this.targetValue = 20;
+    const coldResetVal = (this.itemManager && this.itemManager.has('berserker_heart')) ? 80 : 20;
+    this.value = coldResetVal;
+    this.targetValue = coldResetVal;
     this.crashRecoverTimer = 0.6;
     events.emit('HIT_STOP', 0.25);
     events.emit('SCREEN_SHAKE', { duration: 0.45, intensity: 0.9 });
@@ -172,12 +176,19 @@ export class TempoSystem {
 
   _doCrash(hitStopDur, shakeDur, shakeIntens) {
     this.isCrashed = true;
-    this.value = this.crashResetValue;
-    this.targetValue = this.crashResetValue; // Fix: reset target so it doesn't ramp back to 100
+    // Berserker Heart (BUG-04): crash resets to 80 instead of default
+    const resetVal = (this.itemManager && this.itemManager.has('berserker_heart')) ? 80 : this.crashResetValue;
+    this.value = resetVal;
+    this.targetValue = resetVal; // Fix: reset target so it doesn't ramp back to 100
     events.emit('HIT_STOP', hitStopDur);
     events.emit('SCREEN_SHAKE', { duration: shakeDur, intensity: shakeIntens });
     events.emit('PLAY_SOUND', 'crash');
     this.crashRecoverTimer = shakeDur + 0.05;
+  }
+
+  // Resonance Crystal (BUG-05): returns the ±band for Echo resonance zone
+  resonanceBand() {
+    return (this.itemManager && this.itemManager.has('resonance_crystal')) ? 15 : 5;
   }
 
   damageMultiplier() {

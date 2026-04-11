@@ -48,6 +48,7 @@ export class ItemManager {
     this.coldBloodUsedThisRoom = false;
     this.sustainedTimer = 0;
     this.lastRitesUsed = false;
+    this._lifestealKills = 0; // LIKELY-04: reset between runs
   }
 
   resetRoom() {
@@ -212,7 +213,11 @@ export class ItemManager {
       if (def.charSpecific) return def.charSpecific === charId;
       return true;
     });
-    pool.sort(() => Math.random() - 0.5);
+    // RISK-05: Fisher-Yates shuffle avoids biased distribution from sort
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
     return pool.slice(0, Math.min(count, pool.length));
   }
 }

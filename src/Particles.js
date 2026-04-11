@@ -1,3 +1,12 @@
+// Module-level reusable structures for particle draw batching — avoids per-frame object/array allocation
+const _batchGroups = Object.create(null);
+const _batchKeys = [];
+const PARTICLE_CAP = 400;
+
+// Free-list pool — dead particles are returned here and reused by _pushParticle
+// After a short warm-up, zero heap allocations occur for particles
+const _particlePool = [];
+
 export class ParticleSystem {
   constructor() {
     this.particles = [];
@@ -6,11 +15,24 @@ export class ParticleSystem {
     this.screenEffects = [];
   }
 
+  _pushParticle(opts) {
+    if (this.particles.length >= PARTICLE_CAP) return;
+    // Reuse a pooled object if available — avoids heap allocation after warm-up
+    const p = _particlePool.length > 0 ? _particlePool.pop() : {};
+    p.x = opts.x; p.y = opts.y;
+    p.vx = opts.vx; p.vy = opts.vy;
+    p.r = opts.r; p.color = opts.color;
+    p.life = opts.life; p.maxLife = opts.maxLife;
+    p.drag = opts.drag;
+    this.particles.push(p);
+  }
+
   update(dt) {
     for (let i = this.particles.length - 1; i >= 0; i--) {
       let p = this.particles[i];
       p.life -= dt;
       if (p.life <= 0) {
+        _particlePool.push(p); // return to pool for reuse
         this.particles[i] = this.particles[this.particles.length - 1];
         this.particles.pop();
       } else {
@@ -56,23 +78,30 @@ export class ParticleSystem {
     // Particles — grouped by (color, alpha-bucket) to batch draw calls.
     // Alpha is rounded to nearest 5% so nearby-lifetime particles share a path.
     if (this.particles.length > 0) {
-      // Build groups without per-frame allocation: reuse a plain object as map.
-      const groups = {};
+      // Reset module-level group map (no allocation — just clear counts)
+      for (let i = 0; i < _batchKeys.length; i++) _batchGroups[_batchKeys[i]].count = 0;
+      _batchKeys.length = 0;
+
       const cW = canvasW || 9999, cH = canvasH || 9999;
       for (const p of this.particles) {
-        // Skip particles entirely outside the canvas
         if (p.x + p.r < 0 || p.x - p.r > cW || p.y + p.r < 0 || p.y - p.r > cH) continue;
         const alpha = Math.round((p.life / p.maxLife) * 20) / 20; // 0.05 granularity
         const key = p.color + '|' + alpha;
-        if (groups[key]) { groups[key].list.push(p); }
-        else { groups[key] = { color: p.color, alpha, list: [p] }; }
+        let g = _batchGroups[key];
+        if (!g) {
+          g = { color: p.color, alpha, ps: [], count: 0 };
+          _batchGroups[key] = g;
+        }
+        if (g.count === 0) _batchKeys.push(key);
+        g.ps[g.count++] = p;
       }
-      for (const key in groups) {
-        const g = groups[key];
+      for (let k = 0; k < _batchKeys.length; k++) {
+        const g = _batchGroups[_batchKeys[k]];
         ctx.fillStyle = g.color;
         ctx.globalAlpha = g.alpha;
         ctx.beginPath();
-        for (const p of g.list) {
+        for (let j = 0; j < g.count; j++) {
+          const p = g.ps[j];
           const r = p.r * g.alpha;
           if (r <= 0) continue;
           ctx.moveTo(p.x + r, p.y);
@@ -83,22 +112,28 @@ export class ParticleSystem {
       ctx.globalAlpha = 1.0;
     }
 
-    // Damage numbers
-    for (const t of this.texts) {
-      const alpha = Math.max(0, t.life / t.maxLife);
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = t.color;
-      ctx.font = `bold ${t.size || 16}px monospace`;
+    // Damage numbers — track last font to skip redundant ctx.font assignments
+    if (this.texts.length > 0) {
       ctx.textAlign = 'center';
       ctx.strokeStyle = '#000';
       ctx.lineWidth = 3;
-      ctx.strokeText(t.text, t.x, t.y);
-      ctx.fillText(t.text, t.x, t.y);
+      let lastFont = null;
+      for (let i = 0; i < this.texts.length; i++) {
+        const t = this.texts[i];
+        const alpha = Math.max(0, t.life / t.maxLife);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = t.color;
+        const font = `bold ${t.size || 16}px monospace`;
+        if (font !== lastFont) { ctx.font = font; lastFont = font; }
+        ctx.strokeText(t.text, t.x, t.y);
+        ctx.fillText(t.text, t.x, t.y);
+      }
+      ctx.globalAlpha = 1.0;
     }
-    ctx.globalAlpha = 1.0;
 
     // Visual effects (slashes, rings, crash bursts, perfect dodge)
-    for (const v of this.visuals) {
+    for (let i = 0; i < this.visuals.length; i++) {
+      const v = this.visuals[i];
       const progress = 1 - (v.life / v.maxLife);
       const alpha = v.life / v.maxLife;
       ctx.globalAlpha = alpha;
@@ -164,7 +199,8 @@ export class ParticleSystem {
 
     // Screen-level effects (kill flash, zone pulse, room clear)
     if (canvasW && canvasH) {
-      for (const s of this.screenEffects) {
+      for (let i = 0; i < this.screenEffects.length; i++) {
+        const s = this.screenEffects[i];
         const t = 1 - (s.life / s.maxLife);
         if (s.type === 'killflash') {
           ctx.globalAlpha = Math.max(0, (1 - t) * 0.18);
@@ -240,7 +276,7 @@ export class ParticleSystem {
     for (let i = 0; i < count; i++) {
       const angle = Math.random() * Math.PI * 2;
       const speed = 60 + Math.random() * 180;
-      this.particles.push({
+      this._pushParticle({
         x, y,
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed,
@@ -261,7 +297,7 @@ export class ParticleSystem {
     for (let i = 0; i < 14; i++) {
       const angle = (i / 14) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
       const dist = radius * (0.4 + Math.random() * 0.6);
-      this.particles.push({
+      this._pushParticle({
         x, y,
         vx: Math.cos(angle) * dist * 2,
         vy: Math.sin(angle) * dist * 2,

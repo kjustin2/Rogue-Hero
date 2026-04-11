@@ -882,12 +882,23 @@ export class DeckManager {
     if (!base) return null;
     const level = this.upgrades[cardId] || 0;
     if (level === 0) return base;
-    return {
-      ...base,
+    // BUG-09 + BUG-10: scale damage, tempoShift, and cost; show updated values
+    const scaledDmg = base.damage > 0 ? Math.round(base.damage * (1 + 0.5 * level)) : base.damage;
+    const scaledTempo = base.tempoShift !== 0
+      ? Math.round(base.tempoShift * (1 + 0.25 * level))
+      : base.tempoShift;
+    const scaledCost = level >= 2 ? Math.max(0, base.cost - 1) : base.cost;
+    const dmgStr = scaledDmg > 0 ? `dmg×${(1 + 0.5 * level).toFixed(1)}` : '';
+    const tempoStr = scaledTempo !== base.tempoShift ? `tempo×${(1 + 0.25 * level).toFixed(2)}` : '';
+    const costStr = level >= 2 ? 'cost-1' : '';
+    const upgradeInfo = [dmgStr, tempoStr, costStr].filter(Boolean).join(', ');
+    return Object.assign({}, base, {
       name: base.name + '+'.repeat(level),
-      damage: Math.round(base.damage * (1 + 0.5 * level)),
-      desc: base.desc + ` [Upgraded ${level}×]`
-    };
+      damage: scaledDmg,
+      tempoShift: scaledTempo,
+      cost: scaledCost,
+      desc: base.desc + ` [+${level}: ${upgradeInfo || 'upgraded'}]`
+    });
   }
 
   upgradeCard(cardId) {

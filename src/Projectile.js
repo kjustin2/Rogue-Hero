@@ -15,8 +15,8 @@ class Projectile {
     this.r = 5;
     this.alive = true;
     this.life = life || 2.0;
-    // Fixed-size ring buffer for trail (avoids Array.shift() copies each frame)
-    this.trail = [null, null, null];
+    // Fixed-size ring buffer for trail — slots are real objects updated in-place (no per-frame allocation)
+    this.trail = [{ x, y }, { x, y }, { x, y }];
     this._trailIdx = 0;
     this.nearMissTriggered = false;
 
@@ -61,8 +61,9 @@ export class ProjectileManager {
       p.life -= dt;
       if (p.life <= 0) { this._remove(i); continue; }
 
-      // Store trail point using ring buffer (no Array.shift() copies)
-      p.trail[p._trailIdx] = { x: p.x, y: p.y };
+      // Update trail slot in-place — no allocation
+      const ts = p.trail[p._trailIdx];
+      ts.x = p.x; ts.y = p.y;
       p._trailIdx = (p._trailIdx + 1) % 3;
 
       p.x += p.dx * p.speed * dt;
@@ -153,8 +154,8 @@ export class ProjectileManager {
       // Perfect dodge detection — projectile passes through player during i-frames (once per projectile)
       if (player && player.alive && player.dodging && !p.nearMissTriggered) {
         const dx = p.x - player.x, dy = p.y - player.y;
-        const dist = Math.sqrt(dx * dx + dy * dy);
-        if (dist < p.r + player.r + 22) {
+        const threshold = p.r + player.r + 22;
+        if (dx * dx + dy * dy < threshold * threshold) {
           p.nearMissTriggered = true;
           events.emit('NEAR_MISS_PROJECTILE', { x: p.x, y: p.y });
         }
@@ -173,7 +174,6 @@ export class ProjectileManager {
       ctx.fillStyle = p.color;
       for (let i = 0; i < 3; i++) {
         const t = p.trail[i];
-        if (!t) continue;
         const age = ((i - p._trailIdx + 3) % 3) + 1; // 1=newest-1, 3=oldest
         ctx.globalAlpha = (1 - age / 3) * 0.3;
         ctx.beginPath();

@@ -97,9 +97,10 @@ export class CombatManager {
         this.particles.spawnDamageNumber(this.player.x, this.player.y - 20, '+1 HP');
       }
 
-      // Check if this was the last enemy
-      const remaining = this.enemies.filter(e => e.alive && e !== enemy);
-      if (remaining.length === 0) {
+      // Check if this was the last enemy — manual scan avoids array allocation per kill
+      let aliveCount = 0;
+      for (const e of this.enemies) { if (e.alive && e !== enemy) aliveCount++; }
+      if (aliveCount === 0) {
         events.emit('LAST_KILL', { x: enemy.x, y: enemy.y });
       }
       return true;
@@ -111,8 +112,30 @@ export class CombatManager {
     if (player.budget < cardDef.cost) return false;
 
     player.budget -= cardDef.cost;
+    // Berserker's Oath (BUG-01): consume a stack to waive AP cost
+    if (player.oathStacks > 0) {
+      player.budget += cardDef.cost;
+      player.oathStacks--;
+      if (player.oathStacks === 0) player.oathComboWindow = false;
+    }
     this.tempo.setValue(this.tempo.value + cardDef.tempoShift);
+    // IDEA-12: Brutal tempoCost curse — extra -5 Tempo per card played
+    if (this.player && this.player._tempoCursed) {
+      this.tempo._add(-5);
+    }
     let dmgMult = this.tempo.damageMultiplier();
+
+    // Shadow Cloak (BUG-01): latch and clear before any damage so multi-hit cards all get 3×
+    if (this.player && this.player._shadowCloakActive) {
+      dmgMult *= 3;
+      this.player._shadowCloakActive = false;
+      this.particles.spawnDamageNumber(this.player.x, this.player.y - 30, 'CLOAK!');
+    }
+
+    // IDEA-08: Fortify rest buff — +10% damage, consumed after first card played
+    if (this.player && this.player._fortifyBuff) {
+      dmgMult *= 1.1;
+    }
 
     // Synergy combo: bonus when this card type follows a specific previous type
     const _prevType = this.lastCardType;
@@ -229,12 +252,14 @@ export class CombatManager {
         return this._meleePierce(player, cardDef, dmgMult, cardColor);
       }
 
+      const _meleeRange = cardDef.range;
       let nearest = null, nearestDist = Infinity;
       for (const e of this.enemies) {
         if (!e.alive) continue;
         const dx = e.x - player.x, dy = e.y - player.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < cardDef.range + e.r && d < nearestDist) { nearest = e; nearestDist = d; }
+        const d2 = dx * dx + dy * dy;
+        const threshold = _meleeRange + e.r;
+        if (d2 < threshold * threshold && d2 < nearestDist) { nearest = e; nearestDist = d2; }
       }
       if (nearest) {
         // Combo tracking
@@ -268,9 +293,9 @@ export class CombatManager {
           hitMult *= 3;
           this.particles.spawnDamageNumber(nearest.x, nearest.y - 30, 'DEATH BLOW!');
         }
-        // Echo resonance pulse: secondary hit if Tempo ±5 of 50
+        // Echo resonance pulse: secondary hit if Tempo ±band of 50 (Resonance Crystal widens to ±15)
         const isEchoResonant = this.tempo.classPassives?.resonancePulse &&
-          Math.abs(this.tempo.value - 50) <= 5;
+          Math.abs(this.tempo.value - 50) <= this.tempo.resonanceBand();
 
         const dmg = Math.round(cardDef.damage * dmgMult * hitMult);
 
@@ -353,8 +378,8 @@ export class CombatManager {
         for (const e of this.enemies) {
           if (!e.alive) continue;
           const dx = e.x - player.x, dy = e.y - player.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < cardDef.range + e.r) {
+          const threshold = cardDef.range + e.r;
+          if (dx * dx + dy * dy < threshold * threshold) {
             const finalDmg = (cardDef.executeLow && e.hp / e.maxHp < 0.15) ? e.hp + 999 : dmg;
             this.applyDamageToEnemy(e, finalDmg);
             if (e.alive) e.stagger(0.15);
@@ -392,12 +417,14 @@ export class CombatManager {
     // Dashes toward enemy but stops at safe distance (outside contact range).
     // Brief invincibility window so the player doesn't immediately take contact damage.
     if (cardDef.type === 'dash') {
+      const _dashRange = cardDef.range;
       let nearest = null, nearestDist = Infinity;
       for (const e of this.enemies) {
         if (!e.alive) continue;
         const dx = e.x - player.x, dy = e.y - player.y;
-        const d = Math.sqrt(dx * dx + dy * dy);
-        if (d < cardDef.range + e.r && d < nearestDist) { nearest = e; nearestDist = d; }
+        const d2 = dx * dx + dy * dy;
+        const threshold = _dashRange + e.r;
+        if (d2 < threshold * threshold && d2 < nearestDist) { nearest = e; nearestDist = d2; }
       }
       if (nearest) {
         const dx = nearest.x - player.x, dy = nearest.y - player.y;
@@ -408,6 +435,11 @@ export class CombatManager {
         if (dist > safeStop) {
           player.x += (dx / dist) * (dist - safeStop);
           player.y += (dy / dist) * (dist - safeStop);
+        }
+        // Dash-through (BUG-02): overshoot to far side of enemy
+        if (cardDef.dashThrough) {
+          player.x += (dx / dist) * (nearest.r * 2 + player.r * 2 + 20);
+          player.y += (dy / dist) * (nearest.r * 2 + player.r * 2 + 20);
         }
         // Brief invincibility so the player doesn't take immediate contact damage
         player.dodging = true;
@@ -463,9 +495,9 @@ export class CombatManager {
         return true;
       }
 
-      // Resonant Pulse: double dmg at Tempo 45–55
+      // Resonant Pulse: double dmg at Tempo ±band of 50 (BUG-03: uses resonanceBand() not hardcoded 5)
       let projDmg = dmg;
-      if (cardDef.resonantPulse && Math.abs(this.tempo.value - 50) <= 5) {
+      if (cardDef.resonantPulse && Math.abs(this.tempo.value - 50) <= this.tempo.resonanceBand()) {
         projDmg = dmg * 2;
         this.particles.spawnDamageNumber(player.x, player.y - 30, 'RESONANCE!');
       }
@@ -714,12 +746,14 @@ export class CombatManager {
         events.emit('PLAY_SOUND', 'dodge');
       } else if (cardDef.markForDeath) {
         // Mark nearest enemy in range
+        const _markRange = cardDef.range;
         let nearest = null, nearestDist = Infinity;
         for (const e of this.enemies) {
           if (!e.alive) continue;
           const dx = e.x - player.x, dy = e.y - player.y;
-          const d = Math.sqrt(dx * dx + dy * dy);
-          if (d < cardDef.range + e.r && d < nearestDist) { nearest = e; nearestDist = d; }
+          const d2 = dx * dx + dy * dy;
+          const threshold = _markRange + e.r;
+          if (d2 < threshold * threshold && d2 < nearestDist) { nearest = e; nearestDist = d2; }
         }
         if (nearest) {
           nearest.markedTimer = 4.0;
@@ -797,7 +831,7 @@ export class CombatManager {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const dx = e.x - player.x, dy = e.y - player.y;
-      if (Math.sqrt(dx*dx+dy*dy) < cardDef.range + e.r) {
+      if (dx*dx+dy*dy < (cardDef.range + e.r) * (cardDef.range + e.r)) {
         this.applyDamageToEnemy(e, dmg);
         hitAny = true;
       }
@@ -822,8 +856,8 @@ export class CombatManager {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const dx = e.x - player.x, dy = e.y - player.y;
-      const d = Math.sqrt(dx * dx + dy * dy);
-      if (d < cardDef.range + e.r) {
+      const threshold = cardDef.range + e.r;
+      if (dx * dx + dy * dy < threshold * threshold) {
         this.applyDamageToEnemy(e, dmg);
         this.particles.spawnSlash(player.x, player.y, e.x, e.y, cardColor);
         hitAny = true;
@@ -869,8 +903,8 @@ export class CombatManager {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const dx = e.x - player.x, dy = e.y - player.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < player.r + e.r + 12) {
+      const threshold = player.r + e.r + 12;
+      if (dx * dx + dy * dy < threshold * threshold) {
         const dmg = Math.round(8 * this.tempo.damageMultiplier());
         this.applyDamageToEnemy(e, dmg);
         this.particles.spawnBurst(e.x, e.y, '#ff8800');
@@ -943,9 +977,8 @@ export class CombatManager {
     for (const e of this.enemies) {
       if (!e.alive) continue;
       const dx = e.x - this.player.x, dy = e.y - this.player.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist < maxRange + e.r) {
+      const threshold = maxRange + e.r;
+      if (dx * dx + dy * dy < threshold * threshold) {
         const t = now / 400;
         ctx.strokeStyle = 'rgba(255, 80, 80, 0.5)';
         ctx.lineWidth = 2;

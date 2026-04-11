@@ -45,7 +45,7 @@ Note: `dead` and `victory` do not exist as states — both end in `stats`. `rest
 | `src/Enemy.js` | Base `Enemy` class + 29 named subclasses (including 5 bosses) |
 | `src/player.js` | `Player` — movement, combo system, dodge, class passives |
 | `src/DeckManager.js` | `CardDefinitions` (~104 cards) + `DeckManager` (hand/deck/draw/upgrade state) |
-| `src/Items.js` | `ItemDefinitions` (19 relics) + `ItemManager` (per-update effects, kill/death callbacks) |
+| `src/Items.js` | `ItemDefinitions` (27 relics: 21 general + 6 character-exclusive) + `ItemManager` (per-update effects, kill/death callbacks) |
 | `src/RunManager.js` | Procedural map graph (seeded RNG, layered fight/elite/event/shop/rest/boss nodes) |
 | `src/room.js` | `RoomManager` — room layout variants (standard/pillars/arena/corridor), pillar collision |
 | `src/MetaProgress.js` | localStorage persistence: unlocks, leaderboard, mastery, volume |
@@ -87,7 +87,11 @@ Note: `dead` and `victory` do not exist as states — both end in `stats`. `rest
 - **Auto-crash at 100** (accidental): circular AoE burst around player, resets to `crashResetValue`
 - **Auto-crash at 0** (cold crash): massive freeze AoE, resets to 20
 
-`_doCrash()` resets **both** `value` and `targetValue` to `crashResetValue` — failing to reset `targetValue` causes an immediate reclimb to 100.
+`_doCrash()` resets **both** `value` and `targetValue` to `crashResetValue` — failing to reset `targetValue` causes an immediate reclimb to 100. Berserker Heart overrides the reset value to 80 for [BLADE] characters.
+
+`tempo.prevValue` is snapshotted at the start of each `update()` call — use this for zone-entry detection (e.g. sigil triggers) rather than estimating the previous value from decay math.
+
+`tempo.resonanceBand()` returns the ±band for Echo resonance zone checks: 5 normally, 15 with Resonance Crystal equipped.
 
 Decay is blocked when: `itemManager.sustainedTimer > 0` (Sustained item), or `runaway` item + value ≥ 70.
 
@@ -131,6 +135,14 @@ Enemy communication to player: always emit `ENEMY_MELEE_HIT` with `{ damage, sou
 
 Special enemies: Disruptor emits `PLAYER_SILENCED { duration }` — while `player.silenced = true`, all card clicks show "SILENCED!" and play miss sound.
 
+**Phantom Ink:** `player._phantomInkActive` is set to `player.dodging && itemManager.has('phantom_ink')` immediately before each enemy's `updateLogic` call in the update loop. All enemy idle→chase transitions check `!player._phantomInkActive`.
+
+**Shadow Cloak:** `player._shadowCloakActive` is set to `true` in the `PERFECT_DODGE` event handler (when Shadow Cloak is equipped). `CombatManager.applyDamageToEnemy()` reads and clears this flag, applying 3× damage on the first hit.
+
+**Berserker's Oath (`oathStacks`):** When `player.oathStacks > 0`, `executeCard` refunds the AP cost and decrements the stack. `player.oathComboWindow = true` while stacks remain, which prevents `player.comboTimer` from decrementing in `player.updateLogic`.
+
+**EventBus listener placement:** Never call `events.on()` inside an `updateLogic` method — it runs every frame and will register a new listener each time. Register listeners once in the constructor (or a one-time init method) and use a guard flag if the callback must only fire once.
+
 ---
 
 ## Audio
@@ -152,3 +164,31 @@ Master volume is persisted to `MetaProgress.state.masterVolume` and restored on 
 Key state fields: `unlockedCharacters`, `difficultyTiers`, `unlockedBonusCards`, `masteryUnlockedCards`, `charMastery` (run counts per char), `perCharacterStats`, `leaderboard`, `masterVolume`.
 
 `resetAll()` deep-clones `DEFAULT_STATE` so all fields including nested objects are reset cleanly.
+
+---
+
+## Performance Patterns
+
+These conventions are established and must be maintained when adding new code:
+
+**Squared distance for range checks.** Never call `Math.sqrt` purely to compare against a range threshold. Use `dx*dx + dy*dy < threshold*threshold` instead. Only compute `Math.sqrt` when you actually need the scalar distance value (e.g., direction normalization: `dx / dist`).
+
+```js
+// Wrong — sqrt wasted on a comparison
+const d = Math.sqrt(dx * dx + dy * dy);
+if (d < range + e.r) { ... }
+
+// Correct
+const threshold = range + e.r;
+if (dx * dx + dy * dy < threshold * threshold) { ... }
+```
+
+**Particle cap.** New particles must go through `ParticleSystem._pushParticle()`, not `this.particles.push()` directly. The cap is 400 (constant `PARTICLE_CAP` at the top of `Particles.js`). `spawnBurst` and `spawnCrashBurst` already use `_pushParticle`.
+
+**Particle batch map.** The module-level `_batchGroups` / `_batchKeys` structures in `Particles.js` are reset and reused each frame — do not replace them with per-frame `{}` object literals. This avoids GC pressure from hundreds of short-lived objects per second.
+
+**Projectile trail slots.** Trail slots are pre-allocated `{ x, y }` objects at spawn time and updated in-place each frame. Never assign `p.trail[i] = { x: ..., y: ... }` — always mutate the existing slot: `ts.x = p.x; ts.y = p.y;`.
+
+**Room background cache.** `RoomManager._buildGridCache()` renders the floor, grid, and pillars to an offscreen canvas once per room. `draw()` blits it with a single `drawImage`. Do not add per-frame drawing of static room geometry — invalidate `_gridCache = null` on `generateVariant()` instead (already done).
+
+**Squared distance already applied in:** `Combat.js` (melee nearest, cleave, dash nearest, mark-for-death, mirror strike, melee pierce, dash-attack, reticles), `Projectile.js` (near-miss check, player-shot collision, ricochet nearest). Do not regress these back to `Math.sqrt`.

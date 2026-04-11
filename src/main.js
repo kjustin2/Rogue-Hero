@@ -20,6 +20,20 @@ import { ProjectileManager } from './Projectile.js';
 // Expose itemDefs for UI (avoids circular import)
 window._itemDefs = ItemDefinitions;
 
+// Polyfill ctx.roundRect for browsers that don't support it (Chrome <99, Firefox <112)
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    const radius = Math.min(r, w / 2, h / 2);
+    this.beginPath();
+    this.moveTo(x + radius, y);
+    this.arcTo(x + w, y, x + w, y + h, radius);
+    this.arcTo(x + w, y + h, x, y + h, radius);
+    this.arcTo(x, y + h, x, y, radius);
+    this.arcTo(x, y, x + w, y, radius);
+    this.closePath();
+  };
+}
+
 console.log('[Init] Rogue Hero booting...');
 const canvas = document.getElementById('game');
 if (!canvas) console.error('[Init] FATAL: canvas#game not found!');
@@ -106,6 +120,11 @@ let discardReturnState = 'map';
 // Zone transition first-time tooltip
 let seenZones = new Set();
 let zoneTooltip = null; // { text, color, timer }
+
+// IDEA-12: Brutal difficulty — per-floor curse
+let currentFloorCurse = null; // 'apRegen' | 'speed' | 'tempoCost' | null
+const BRUTAL_CURSES = ['apRegen', 'speed', 'tempoCost'];
+const BRUTAL_CURSE_NAMES = { apRegen: 'CURSED: −30% AP Regen', speed: 'CURSED: −20% Speed', tempoCost: 'CURSED: +5 Tempo Loss/Card' };
 
 // Rest node state
 let restChoiceBoxes = [];
@@ -236,14 +255,29 @@ events.on('REQUEST_PLAYER_POS_CRASH', ({ radius, dmg, accidental }) => {
   events.emit('CRASH_ATTACK', { x: player.x, y: player.y, radius, dmg });
   if (!accidental) runStats.manualCrashes++;
   events.emit('CRASH_TEXT', { dmg });
+  // Berserker Heart (BUG-04): each crash adds +1 combo stack
+  if (itemManager.has('berserker_heart')) {
+    player.comboCount++;
+    player.comboTimer = Math.max(player.comboTimer, 2.0);
+    events.emit('RELIC_ACTIVATED', { name: 'Berserker Heart', text: '+1 COMBO' });
+  }
 });
 
-events.on('KILL', () => { runStats.kills++; });
+events.on('KILL', () => {
+  runStats.kills++;
+  // IDEA-01: Cold Mastery kill bonus — +5 Tempo per kill while Cold Mastery active
+  if (player && player._coldMasteryActive && tempo.value < 30) {
+    tempo._add(5);
+    particles.spawnDamageNumber(player.x, player.y - 20, '+5 TEMPO');
+  }
+});
 
 events.on('PERFECT_DODGE', () => {
   runStats.perfectDodges++;
   particles.spawnPerfectDodge(player.x, player.y);
   particles.spawnDamageNumber(player.x, player.y - 30, 'PERFECT!');
+  // Shadow Cloak (BUG-02): arm the 3× damage buff after perfect dodge
+  if (itemManager.has('shadow_cloak')) player._shadowCloakActive = true;
 });
 
 events.on('NEAR_MISS_PROJECTILE', ({ x, y }) => {
@@ -258,12 +292,23 @@ const ZONE_TIPS = {
   HOT:      { text: 'HOT ZONE — 1.3× damage, 1.2× speed. Dash attacks deal damage!', color: '#ff8833' },
   CRITICAL: { text: 'CRITICAL ZONE — 1.8× damage, attacks pierce. Watch your tempo!', color: '#ff3333' },
 };
+// IDEA-04: Boss phase transition visual announcement
+events.on('PHASE_TRANSITION', ({ phase }) => {
+  particles.spawnDamageNumber(window.CANVAS_W / 2, window.CANVAS_H / 2 - 60, `PHASE ${phase}!`);
+  slowMoTimer = Math.max(slowMoTimer, 0.4);
+  slowMoScale = 0.1;
+});
+
 events.on('ZONE_TRANSITION', ({ oldZone, newZone }) => {
   particles.spawnZonePulse(tempo.stateColor());
   particles.spawnStateLabel(newZone, tempo.stateColor());
   if (!seenZones.has(newZone) && ZONE_TIPS[newZone]) {
     seenZones.add(newZone);
     zoneTooltip = { text: ZONE_TIPS[newZone].text, color: ZONE_TIPS[newZone].color, timer: 3.5 };
+  }
+  // IDEA-01: clear Cold Mastery when leaving Cold zone
+  if (oldZone === 'COLD') {
+    if (player) { player._coldMasteryTimer = 0; player._coldMasteryActive = false; }
   }
 });
 
@@ -444,6 +489,11 @@ function startNewRun() {
   roomsCleared = 0;
   totalHealedThisRun = 0;
   noDashCardsUsedThisRun = true;
+  // IDEA-01: Cold Mastery tracking
+  player._coldMasteryTimer = 0;
+  player._coldMasteryActive = false;
+  // IDEA-12: reset floor curse
+  currentFloorCurse = selectedDifficulty >= 2 ? BRUTAL_CURSES[0] : null;
   newUnlocks = [];
   slowMoTimer = 0;
   slowMoScale = 1.0;
@@ -452,6 +502,7 @@ function startNewRun() {
   zoneTooltip = null;
   ui.prepPendingCard = null;
   ui.showInventory = false;
+  window._discardCallback = null; // LIKELY-02: prevent stale callback from prior run
 
   runManager.generateMap();
   resetRunStats();
@@ -485,8 +536,8 @@ function spawnEnemies(node) {
       enemies.push(new ShieldDrone(cx - 100, cy + 60));
       enemies.push(new ShieldDrone(cx + 100, cy + 60));
     } else if (f === 3) {
-      // 30% chance to face The Archivist instead of BossEcho
-      if (Math.random() < 0.3) {
+      // 30% chance to face The Archivist instead of BossEcho (BUG-07: use seeded rng)
+      if (rng() < 0.3) {
         enemies.push(new BossArchivist(cx, cy));
       } else {
         enemies.push(new BossEcho(cx, cy));
@@ -540,7 +591,7 @@ function spawnEnemies(node) {
       else if (f >= 1 && roll < 0.54) enemies.push(new Shrieker(rndX(), rndY()));
       else if (f >= 1 && roll < 0.58) enemies.push(new Splitter(rndX(), rndY()));
       else if (roll < 0.63) enemies.push(new TempoVampire(rndX(), rndY()));
-      else if (roll < 0.63) enemies.push(new ShieldDrone(rndX(), rndY()));
+      else if (roll < 0.67) enemies.push(new ShieldDrone(rndX(), rndY())); // BUG-06: was dead branch (0.63)
       else if (roll < 0.68) enemies.push(new Healer(rndX(), rndY()));
       else if (roll < 0.74) enemies.push(new Turret(rndX(), rndY()));
       else if (roll < 0.82) {
@@ -552,6 +603,16 @@ function spawnEnemies(node) {
       }
       else if (roll < 0.91) enemies.push(new Sniper(rndX(), rndY()));
       else enemies.push(new Chaser(rndX(), rndY()));
+    }
+  }
+
+  // IDEA-12: Hard difficulty — 30% chance per enemy to gain an elite modifier
+  if (selectedDifficulty >= 1) {
+    for (const e of enemies) {
+      if (!e.isBoss && rng() < 0.30) {
+        const modRoll = rng();
+        e.applyEliteModifier(modRoll < 0.4 ? 'armored' : modRoll < 0.7 ? 'berserk' : 'regenerating');
+      }
     }
   }
 
@@ -603,6 +664,8 @@ function spawnEnemies(node) {
   if (window.DEBUG) console.log(`[Spawn] "${node.type}" F${f}: ${enemies.length} enemies [${enemies.map(e=>e.type).join(',')}]`);
 }
 
+// PERF-07: getAvailableCards() allocates on every draft. Could cache with a dirty flag,
+// but since it's called once per room clear (not every frame), it's acceptable as-is.
 function getAvailableCards() {
   const owned = deckManager.collection;
   return Object.keys(CardDefinitions).filter(id => {
@@ -620,10 +683,11 @@ function getAvailableCards() {
 
 function generateDraft() {
   const available = getAvailableCards();
-  // Fisher-Yates partial shuffle — O(k) instead of O(N log N) sort
+  // Fisher-Yates partial shuffle — O(k) instead of O(N log N) sort (BUG-05: seeded RNG)
+  const rng = runManager.getRng();
   const k = Math.min(3, available.length);
   for (let i = 0; i < k; i++) {
-    const j = i + Math.floor(Math.random() * (available.length - i));
+    const j = i + Math.floor(rng() * (available.length - i));
     const tmp = available[i]; available[i] = available[j]; available[j] = tmp;
   }
   draftChoices = available.slice(0, k);
@@ -738,9 +802,16 @@ function checkRunUnlocks(won) {
 function handleCombatClear() {
   roomsCleared++;
   runStats.roomsCleared = roomsCleared;
+  // IDEA-08: clear fortify buff after room clear
+  if (player) player._fortifyBuff = false;
   console.log(`[Combat] Cleared! Total: ${roomsCleared}`);
   audio.silenceMusic();
   audio.playBGM('map');
+
+  // IDEA-12: assign new curse for Brutal mode on floor advance
+  if (selectedDifficulty >= 2) {
+    currentFloorCurse = BRUTAL_CURSES[Math.floor(runManager.getRng()() * BRUTAL_CURSES.length)];
+  }
 
   if (currentCombatNode && currentCombatNode.type === 'boss') {
     if (runManager.floor >= FLOORS_TO_WIN) {
@@ -773,10 +844,12 @@ function _fireSigil(s) {
   switch (def.sigilTrigger) {
     case 'enterHot':
     case 'crash': {
+      // BUG-11/PERF-05: hoist squared range threshold out of loop
+      const aoe2 = (def.sigilAoE || 150) ** 2;
       for (const e of enemies) {
         if (!e.alive) continue;
         const dx = e.x - x, dy = e.y - y;
-        if (dx*dx+dy*dy < (def.sigilAoE||150)**2) combat.applyDamageToEnemy(e, dmg);
+        if (dx*dx+dy*dy < aoe2) combat.applyDamageToEnemy(e, dmg);
       }
       if (def.id === 'crash_rune') {
         events.emit('SPAWN_ORBS', { count: 4, radius: 80, damage: 12, life: 3.0, speed: 3.5, color: '#ff2200', freeze: 0, spiral: false });
@@ -784,10 +857,12 @@ function _fireSigil(s) {
       break;
     }
     case 'enterCold': {
+      // BUG-11/PERF-05: hoist squared range threshold out of loop
+      const coldAoe2 = (def.sigilAoE || 200) ** 2;
       for (const e of enemies) {
         if (!e.alive) continue;
         const dx = e.x - x, dy = e.y - y;
-        if (dx*dx+dy*dy < (def.sigilAoE||200)**2) e.stagger(def.sigilFreeze || 2.5);
+        if (dx*dx+dy*dy < coldAoe2) e.stagger(def.sigilFreeze || 2.5);
       }
       break;
     }
@@ -825,23 +900,24 @@ function _fireChannelTick(ch, dmgMult) {
       break;
     }
     case 'arc': {
-      let nearest = null, nearestDist = Infinity;
+      let nearest = null, nearestDist2 = Infinity;
       for (const e of enemies) {
         if (!e.alive) continue;
         const dx = e.x - player.x, dy = e.y - player.y;
-        const d = Math.sqrt(dx*dx+dy*dy);
-        if (d < range + e.r && d < nearestDist) { nearest = e; nearestDist = d; }
+        const d2 = dx*dx+dy*dy;
+        const threshold = range + e.r;
+        if (d2 < threshold * threshold && d2 < nearestDist2) { nearest = e; nearestDist2 = d2; }
       }
       if (nearest) {
         combat.applyDamageToEnemy(nearest, dmg);
         particles.spawnSlash(player.x, player.y, nearest.x, nearest.y, '#ffff44');
         // Chain to secondary
-        let secondary = null, sDist = Infinity;
+        let secondary = null, sDist2 = Infinity;
         for (const e of enemies) {
           if (!e.alive || e === nearest) continue;
           const dx = e.x - nearest.x, dy = e.y - nearest.y;
-          const d = Math.sqrt(dx*dx+dy*dy);
-          if (d < 150 && d < sDist) { secondary = e; sDist = d; }
+          const d2 = dx*dx+dy*dy;
+          if (d2 < 150*150 && d2 < sDist2) { secondary = e; sDist2 = d2; }
         }
         if (secondary) {
           combat.applyDamageToEnemy(secondary, Math.round(dmg * 1.5));
@@ -927,8 +1003,8 @@ function handleEvent(choiceIdx) {
       case 1: // Heal 2 HP
         player.heal(2);
         break;
-      case 2: // Gamble
-        if (Math.random() < 0.5) { player.heal(2); }
+      case 2: // Gamble (BUG-06: seeded RNG)
+        if (runManager.getRng()() < 0.5) { player.heal(2); }
         else { player.hp = Math.max(1, player.hp - 1); }
         break;
     }
@@ -1103,6 +1179,11 @@ function update(logicDt, realDt) {
               discardReturnState = 'map';
               gameState = 'discard';
             }
+          } else if (b.action === 'fortify') { // IDEA-08
+            player._fortifyBuff = true;
+            particles.spawnDamageNumber(player.x, player.y - 30, '+10% DMG NEXT FIGHT!');
+            console.log('[Rest] Fortify buff set');
+            gameState = 'map';
           }
           break;
         }
@@ -1162,6 +1243,7 @@ function update(logicDt, realDt) {
           gameState = 'map';
         } else {
           deckManager.addCard(discardPendingCardId);
+          shopCards = shopCards.filter(c => c !== discardPendingCardId); // BUG-08: remove from shop after discard
           console.log(`[Deck] Discarded "${discardId}", added "${discardPendingCardId}"`);
           if (window._discardCallback) {
             const cb = window._discardCallback;
@@ -1301,6 +1383,14 @@ function update(logicDt, realDt) {
   }
 
   player.updateLogic(logicDt, input, tempo, room);
+
+  // IDEA-12: Brutal floor curse effects
+  player._cursedSpeedMult = (currentFloorCurse === 'speed') ? 0.8 : 1.0;
+  player._tempoCursed = (currentFloorCurse === 'tempoCost');
+  if (currentFloorCurse === 'apRegen') {
+    player.budget = Math.max(0, player.budget - player.apRegen * 0.3 * logicDt);
+  }
+
   ui.setMouse(input.mouse.x, input.mouse.y);
 
   // Hot dash-attack check
@@ -1327,6 +1417,15 @@ function update(logicDt, realDt) {
   player._corruptorAura = inCorruptorAura;
   player._timekeeperAura = inTimekeeperAura;
 
+  // IDEA-01: Cold Mastery — reward staying in Cold zone for 2+ seconds
+  if (tempo.value < 30) {
+    player._coldMasteryTimer = (player._coldMasteryTimer || 0) + logicDt;
+    if (!player._coldMasteryActive && player._coldMasteryTimer >= 2.0) {
+      player._coldMasteryActive = true;
+      particles.spawnDamageNumber(player.x, player.y - 40, 'COLD MASTERY!');
+    }
+  }
+
   // Vanguard Guard stack decay
   if (Characters[selectedCharId]?.passives?.ironGuard) {
     if (player.guardStacks === undefined) player.guardStacks = 0;
@@ -1336,6 +1435,9 @@ function update(logicDt, realDt) {
       player._guardDecayTimer = 0;
     }
   }
+
+  // BUG-08: compute once per frame, not per-enemy
+  player._phantomInkActive = player.dodging && itemManager.has('phantom_ink');
 
   // Update enemies — pass projectile manager
   for (let i = enemies.length - 1; i >= 0; i--) {
@@ -1349,8 +1451,9 @@ function update(logicDt, realDt) {
         e.takeDamage(e.bleedDmg || 3);
         particles.spawnDamageNumber(e.x, e.y - 10, e.bleedDmg || 3);
         if (!e.alive) {
+          if (typeof e.cleanup === 'function') e.cleanup(); // BUG-07: prevent listener leaks
           itemManager.onKill(tempo.value, player);
-          if (e.type && e.type.startsWith('boss')) itemManager.onBossKill(player);
+          if (e.isBoss) itemManager.onBossKill(player);
           enemies[i] = enemies[enemies.length - 1];
           enemies.pop();
           continue;
@@ -1361,7 +1464,7 @@ function update(logicDt, realDt) {
     if (!e.alive) {
       // Item on-kill effects
       itemManager.onKill(tempo.value, player);
-      if (e.type && e.type.startsWith('boss')) itemManager.onBossKill(player);
+      if (e.isBoss) itemManager.onBossKill(player);
       // Splitter: spawn splits (updateLogic already did it — just verify)
       enemies[i] = enemies[enemies.length - 1];
       enemies.pop();
@@ -1404,10 +1507,12 @@ function update(logicDt, realDt) {
     const t = traps[i];
     t.life -= logicDt;
     if (t.life <= 0) { traps.splice(i, 1); continue; }
+    const trapThreshold = t.radius + 32; // 32 = max enemy radius
     for (const e of enemies) {
       if (!e.alive) continue;
       const dx = e.x - t.x, dy = e.y - t.y;
-      if (dx * dx + dy * dy < (t.radius + e.r) ** 2) {
+      if (Math.abs(dx) > trapThreshold || Math.abs(dy) > trapThreshold) continue;
+      if (dx * dx + dy * dy < (t.radius + e.r) * (t.radius + e.r)) {
         // Trigger
         if (t.damage > 0) combat.applyDamageToEnemy(e, t.damage);
         if (t.stagger > 0 && e.alive) e.stagger(t.stagger);
@@ -1448,7 +1553,8 @@ function update(logicDt, realDt) {
     for (const e of enemies) {
       if (!e.alive) continue;
       const dx = e.x - ox, dy = e.y - oy;
-      if (dx * dx + dy * dy < (8 + e.r) ** 2) {
+      if (Math.abs(dx) > 40 || Math.abs(dy) > 40) continue; // 8 + 32 (max enemy r)
+      if (dx * dx + dy * dy < (8 + e.r) * (8 + e.r)) {
         const now2 = performance.now();
         const lastHit = o.hitCooldowns.get(e) || 0;
         if (now2 - lastHit > ORB_HIT_COOLDOWN * 1000) {
@@ -1470,12 +1576,13 @@ function update(logicDt, realDt) {
     const { x, y, def, dmg, inputX, inputY } = echo;
     switch (def.echoType) {
       case 'melee': {
-        let nearest = null, nearestDist = Infinity;
+        let nearest = null, nearestDist2 = Infinity;
         for (const e of enemies) {
           if (!e.alive) continue;
           const dx = e.x - x, dy = e.y - y;
-          const d = Math.sqrt(dx*dx+dy*dy);
-          if (d < (def.range || 90) + e.r && d < nearestDist) { nearest = e; nearestDist = d; }
+          const d2 = dx*dx+dy*dy;
+          const threshold = (def.range || 90) + e.r;
+          if (d2 < threshold * threshold && d2 < nearestDist2) { nearest = e; nearestDist2 = d2; }
         }
         if (nearest) {
           combat.applyDamageToEnemy(nearest, dmg);
@@ -1512,12 +1619,12 @@ function update(logicDt, realDt) {
         break;
       }
       case 'dash': {
-        let nearest = null, nearestDist = Infinity;
+        let nearest = null, nearestDist2 = Infinity;
         for (const e of enemies) {
           if (!e.alive) continue;
           const dx = e.x - x, dy = e.y - y;
-          const d = Math.sqrt(dx*dx+dy*dy);
-          if (d < 300 && d < nearestDist) { nearest = e; nearestDist = d; }
+          const d2 = dx*dx+dy*dy;
+          if (d2 < 300*300 && d2 < nearestDist2) { nearest = e; nearestDist2 = d2; }
         }
         if (nearest) {
           combat.applyDamageToEnemy(nearest, dmg);
@@ -1528,7 +1635,8 @@ function update(logicDt, realDt) {
       }
       case 'repeat': {
         if (_lastCardPlayed) {
-          const fakePlayer = { x, y, budget: 999, comboCount: player.comboCount, recentDodgeTimer: 0, guardStacks: 0, oathStacks: 0 };
+          // LIKELY-01: include all fields executeCard may read to avoid undefined errors
+          const fakePlayer = { x, y, budget: 999, comboCount: player.comboCount, recentDodgeTimer: 0, guardStacks: 0, oathStacks: 0, stance: player.stance, silenced: false, parryWindow: null, _resonanceActive: player._resonanceActive };
           combat.setLists(enemies, fakePlayer);
           combat.executeCard(fakePlayer, _lastCardPlayed, { x: inputX, y: inputY });
           combat.setLists(enemies, player);
@@ -1541,14 +1649,17 @@ function update(logicDt, realDt) {
     echoes.splice(i, 1);
   }
 
+  // IDEA-06: expose sigil list to UI for HUD indicator
+  ui.activeSigils = sigils;
+
   // Update sigils (check Tempo triggers)
   for (let i = sigils.length - 1; i >= 0; i--) {
     const s = sigils[i];
     if (s.triggered) { sigils.splice(i, 1); continue; }
     let fire = false;
     switch (s.def.sigilTrigger) {
-      case 'enterHot':    fire = tempo.value >= 70 && (tempo.value - (tempo.DECAY_RATE || 5) * 0.016) < 70; break;
-      case 'enterCold':   fire = tempo.value < 30 && (tempo.value + (tempo.DECAY_RATE || 5) * 0.016) >= 30; break;
+      case 'enterHot':    fire = tempo.value >= 70 && (tempo.prevValue ?? tempo.value) < 70; break; // LIKELY-03: use actual prev frame value
+      case 'enterCold':   fire = tempo.value < 30 && (tempo.prevValue ?? tempo.value) >= 30; break;
       case 'resonance':   fire = Math.abs(tempo.value - 50) <= 5; break;
       case 'crash':       break; // handled via event
       case 'takeDamage':  break; // handled via event
@@ -1671,42 +1782,57 @@ function getDraftClickIndex(mx, my) {
 
 function _drawWorldObjects(ctx, now) {
   ctx.save();
-  // Traps
-  for (const t of traps) {
-    const pulse = (Math.sin(now / 300) + 1) * 0.5;
-    ctx.beginPath();
-    ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
-    ctx.strokeStyle = (t.color || '#ffaa44') + Math.round((0.4 + pulse * 0.4) * 255).toString(16).padStart(2,'0');
+  // Traps — sin precomputed once for all traps; globalAlpha replaces hex-alpha string build
+  if (traps.length > 0) {
+    const trapPulse = (Math.sin(now / 300) + 1) * 0.5;
     ctx.lineWidth = 2;
     ctx.setLineDash([4, 4]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.fillStyle = (t.color || '#ffaa44') + '22';
-    ctx.fill();
-  }
-  // Sigils
-  for (const s of sigils) {
-    const pulse = (Math.sin(now / 500) + 1) * 0.5;
-    const r = 22 + pulse * 6;
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
-    ctx.strokeStyle = s.def.color || '#ff4400';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = (s.def.color || '#ff4400') + '22';
-    ctx.fill();
-    // Inner hex
-    ctx.beginPath();
-    for (let k = 0; k < 6; k++) {
-      const a = (k / 6) * Math.PI * 2 + now * 0.001;
-      const hx = s.x + Math.cos(a) * (r * 0.6);
-      const hy = s.y + Math.sin(a) * (r * 0.6);
-      k === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy);
+    for (const t of traps) {
+      const col = t.color || '#ffaa44';
+      ctx.globalAlpha = 0.4 + trapPulse * 0.4;
+      ctx.strokeStyle = col;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 0.133; // ~0x22/255
+      ctx.fillStyle = col;
+      ctx.fill();
+      ctx.setLineDash([4, 4]);
     }
-    ctx.closePath();
-    ctx.strokeStyle = (s.def.color || '#ff4400') + 'aa';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1.0;
+  }
+  // Sigils — sin precomputed once for all sigils
+  if (sigils.length > 0) {
+    const sigilPulse = (Math.sin(now / 500) + 1) * 0.5;
+    for (const s of sigils) {
+      const r = 22 + sigilPulse * 6;
+      const col = s.def.color || '#ff4400';
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, r, 0, Math.PI * 2);
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 0.133;
+      ctx.fillStyle = col;
+      ctx.fill();
+      ctx.globalAlpha = 1.0;
+      // Inner hex
+      ctx.beginPath();
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + now * 0.001;
+        const hx = s.x + Math.cos(a) * (r * 0.6);
+        const hy = s.y + Math.sin(a) * (r * 0.6);
+        k === 0 ? ctx.moveTo(hx, hy) : ctx.lineTo(hx, hy);
+      }
+      ctx.closePath();
+      ctx.globalAlpha = 0.667; // ~0xaa/255
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = 1.0;
+    }
   }
   // Ground waves
   for (const w of groundWaves) {
@@ -1797,6 +1923,10 @@ function _drawOrbs(ctx) {
 // ── RENDER ──────────────────────────────────────────────────────
 function render() {
   renderer.clear();
+  // Reset critical canvas state each frame — guards against mid-render throw leaving stale state
+  renderer.ctx.globalAlpha = 1.0;
+  renderer.ctx.setLineDash([]);
+  renderer.ctx.shadowBlur = 0;
 
   // ── INTRO ──
   if (gameState === 'intro') {
@@ -2275,8 +2405,8 @@ function render() {
 
     restChoiceBoxes = [];
     const btnW = Math.min(400, canvas.width - 80);
-    const btnH = 90, btnGap = 24;
-    const btnStartY = (canvas.height - (2 * btnH + btnGap)) / 2;
+    const btnH = 80, btnGap = 18; // IDEA-08: slightly smaller to fit 3 buttons
+    const btnStartY = (canvas.height - (3 * btnH + 2 * btnGap)) / 2;
     const choices = [
       {
         action: 'heal', label: 'Heal 3 HP', color: '#44ff88', bg: '#0e2018',
@@ -2287,6 +2417,11 @@ function render() {
         action: 'burn', label: 'Remove a Card', color: '#ffaa44', bg: '#1e1500',
         canDo: deckManager.collection.length > 1,
         lines: ['Permanently remove one card', `from your deck  (${deckManager.collection.length} cards)`],
+      },
+      {
+        action: 'fortify', label: 'Fortify', color: '#cc88ff', bg: '#14001e', // IDEA-08
+        canDo: true,
+        lines: ['+10% damage for your next fight', player._fortifyBuff ? '(already active)' : 'Bonus clears after room clear'],
       },
     ];
     for (let i = 0; i < choices.length; i++) {
@@ -2380,6 +2515,11 @@ function render() {
     combat.drawReticles(renderer.ctx, deckManager.hand, CardDefinitions, now);
   }
   for (const e of enemies) e.draw(renderer.ctx, now);
+  // Batched health bar pass — standard enemies cache _hbColor in drawBody;
+  // bosses/special enemies draw their own bars inside their draw() above
+  for (const e of enemies) {
+    if (e.alive && e._hbColor) { e.drawHealthBar(renderer.ctx, e._hbColor); e._hbColor = null; }
+  }
   projectiles.draw(renderer.ctx);
   player.draw(renderer.ctx, tempo);
   _drawOrbs(renderer.ctx);
@@ -2399,6 +2539,12 @@ function render() {
     ctx.fillText(`Act ${runManager.floor}/${FLOORS_TO_WIN}`, canvas.width - 63, 120);
     ctx.fillStyle = DIFFICULTY_COLORS[selectedDifficulty] || '#888';
     ctx.fillText(DIFFICULTY_NAMES[selectedDifficulty], canvas.width - 63, 135);
+    // IDEA-12: show active Brutal curse
+    if (currentFloorCurse && selectedDifficulty >= 2) {
+      ctx.fillStyle = '#ff4422';
+      ctx.font = 'bold 11px monospace';
+      ctx.fillText(BRUTAL_CURSE_NAMES[currentFloorCurse] || currentFloorCurse, canvas.width / 2, 22);
+    }
     // Touch controls
     input.drawTouchControls(ctx);
 
@@ -2762,5 +2908,5 @@ window.addEventListener('click', _tryInitAudio);
 window.addEventListener('keydown', _tryInitAudio);
 
 console.log('[Init] Game ready, starting engine.');
-const engine = new Engine(update, render);
+const engine = new Engine(update, render, () => gameState);
 engine.start();

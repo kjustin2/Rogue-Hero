@@ -46,17 +46,19 @@ export class Player extends Entity {
     this.hitFlash = Math.max(0, this.hitFlash - dt);
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     this.dodgeCooldown = Math.max(0, this.dodgeCooldown - dt);
-    this.comboTimer -= dt;
+    // BUG-01: oathComboWindow holds the combo timer while Berserker's Oath stacks remain
+    if (!this.oathComboWindow) this.comboTimer -= dt;
     if (this.comboTimer <= 0) this.comboCount = 0;
 
     // AP regen (Corruptor aura reduces by 60%)
     const regenMult = this._corruptorAura ? 0.4 : 1.0;
     this.budget = Math.min(this.budget + this.apRegen * regenMult * dt, this.maxBudget);
 
-    // Speed: base × tempo × War Cry boost × Timekeeper slow
+    // Speed: base × tempo × War Cry boost × Timekeeper slow × Brutal curse
     let spdMult = tempo.speedMultiplier();
     if (this._timekeeperAura) spdMult *= 0.45;
     if (this.speedBoostTimer > 0) spdMult *= (this.speedBoostMult || 1.2);
+    if (this._cursedSpeedMult) spdMult *= this._cursedSpeedMult; // IDEA-12: Brutal curse
     const spd = this.BASE_SPEED * spdMult;
 
     // Dodge

@@ -39,10 +39,22 @@ export class UI {
     this._hoveredCard = -1;
     this._mouseX = 0;
     this._mouseY = 0;
+    // Gradient caches — rebuilt on resize, reused every frame
+    this._tempoGrad = null;
+    this._tempoGradX = -1;
+    this._tempoGradW = -1;
+    this._vigGrads = null;   // { cold, hot, critical } — one CanvasGradient per zone
+    this._vigGradW = 0;
+    this._vigGradH = 0;
+    // Tempo value string cache — only rebuild when the integer value changes
+    this._lastTempoInt = -1;
+    this._lastTempoStr = '';
     // Inventory overlay (map screen)
     this.showInventory = false;
     // Prep screen: card selected from collection waiting to be slotted
     this.prepPendingCard = null;
+    // IDEA-06: active sigils array (set from main.js each frame)
+    this.activeSigils = null;
     // New unlocks to show on stats screen
     this.newUnlocks = [];
   }
@@ -58,7 +70,7 @@ export class UI {
     this._bossEnemy = null;
     if (this.enemies) {
       for (const e of this.enemies) {
-        if (e.alive && e.type && e.type.startsWith('boss')) { this._bossEnemy = e; break; }
+        if (e.alive && e.isBoss) { this._bossEnemy = e; break; }
       }
     }
   }
@@ -73,6 +85,57 @@ export class UI {
     if (this.deckManager && this.cardDefs) this._drawHand(ctx);
     this._drawTempoBar(ctx);
     if (this.player && this.player.silenced) this._drawSilencedIndicator(ctx);
+    // IDEA-06: sigil HUD indicator
+    if (this.activeSigils && this.activeSigils.length > 0) this._drawSigilCount(ctx);
+    // IDEA-09: combo bar
+    if (this.player && this.player.comboCount > 0) this._drawComboBar(ctx);
+  }
+
+  // IDEA-06: sigil count indicator near relics area
+  _drawSigilCount(ctx) {
+    const active = this.activeSigils.filter(s => !s.triggered).length;
+    if (active === 0) return;
+    const x = this.width - 110, y = 18;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.beginPath();
+    ctx.roundRect(x, y, 90, 22, 4);
+    ctx.fill();
+    ctx.fillStyle = '#ff8833';
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`SGL: ${active}`, x + 8, y + 15);
+    ctx.restore();
+  }
+
+  // IDEA-09: combo bar — shows combo count and decay timer
+  _drawComboBar(ctx) {
+    if (!this.player) return;
+    const count = this.player.comboCount;
+    const timer = this.player.comboTimer || 0;
+    const maxComboTimer = 2.0;
+    const BAR_W = 120, BAR_H = 8;
+    const bx = (this.width - BAR_W) / 2;
+    const by = 60;
+
+    const col = count >= 3 ? '#ff3333' : (count >= 2 ? '#ff8800' : '#ffdd00');
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.fillRect(bx - 4, by - 20, BAR_W + 8, 36);
+
+    ctx.fillStyle = col;
+    ctx.font = 'bold 16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`×${count} COMBO`, this.width / 2, by - 4);
+
+    // Decay bar
+    ctx.fillStyle = '#222';
+    ctx.fillRect(bx, by, BAR_W, BAR_H);
+    const fill = Math.min(1, timer / maxComboTimer);
+    ctx.fillStyle = col;
+    ctx.fillRect(bx, by, BAR_W * fill, BAR_H);
+    ctx.restore();
   }
 
   _drawSilencedIndicator(ctx) {
@@ -95,15 +158,25 @@ export class UI {
   _drawZoneVignette(ctx) {
     const v = this.tempo.value;
     if (v < 30 || v >= 70) {
-      let col, alpha;
-      if (v < 30) { col = PAL.COLD; alpha = 0.06 + (30 - v) / 30 * 0.08; }
-      else if (v < 90) { col = PAL.HOT; alpha = 0.05 + (v - 70) / 20 * 0.08; }
-      else { col = PAL.CRITICAL; alpha = 0.08 + Math.sin(this._pulseTimer * 5) * 0.04; }
-      const grad = ctx.createRadialGradient(this.width/2, this.height/2, this.height * 0.25, this.width/2, this.height/2, this.height * 0.85);
-      grad.addColorStop(0, 'rgba(0,0,0,0)');
-      grad.addColorStop(1, col + Math.round(alpha * 255).toString(16).padStart(2,'0'));
-      ctx.fillStyle = grad;
+      let zoneKey, alpha;
+      if (v < 30) { zoneKey = 'cold'; alpha = 0.06 + (30 - v) / 30 * 0.08; }
+      else if (v < 90) { zoneKey = 'hot'; alpha = 0.05 + (v - 70) / 20 * 0.08; }
+      else { zoneKey = 'critical'; alpha = 0.08 + Math.sin(this._pulseTimer * 5) * 0.04; }
+      // Rebuild gradient cache when canvas size changes
+      if (!this._vigGrads || this._vigGradW !== this.width || this._vigGradH !== this.height) {
+        this._vigGradW = this.width; this._vigGradH = this.height;
+        const mk = (col) => {
+          const g = ctx.createRadialGradient(this.width/2, this.height/2, this.height * 0.25, this.width/2, this.height/2, this.height * 0.85);
+          g.addColorStop(0, 'rgba(0,0,0,0)');
+          g.addColorStop(1, col);
+          return g;
+        };
+        this._vigGrads = { cold: mk(PAL.COLD), hot: mk(PAL.HOT), critical: mk(PAL.CRITICAL) };
+      }
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = this._vigGrads[zoneKey];
       ctx.fillRect(0, 0, this.width, this.height);
+      ctx.globalAlpha = 1.0;
     }
   }
 
@@ -120,17 +193,22 @@ export class UI {
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(bx - 4, by - 22, BAR_W + 8, BAR_H + 30);
 
-    // Zone colored gradient fill bar
+    // Zone colored gradient fill bar — cached; only rebuilt on resize
     const fill = Math.min(BAR_W, (this.tempo.value / 100) * BAR_W);
-    const grad = ctx.createLinearGradient(bx, by, bx + BAR_W, by);
-    grad.addColorStop(0,    PAL.COLD);
-    grad.addColorStop(0.30, PAL.COLD);
-    grad.addColorStop(0.31, PAL.FLOWING);
-    grad.addColorStop(0.70, PAL.FLOWING);
-    grad.addColorStop(0.71, PAL.HOT);
-    grad.addColorStop(0.90, PAL.HOT);
-    grad.addColorStop(0.91, PAL.CRITICAL);
-    grad.addColorStop(1.0,  PAL.CRITICAL);
+    if (!this._tempoGrad || this._tempoGradX !== bx || this._tempoGradW !== BAR_W) {
+      this._tempoGradX = bx; this._tempoGradW = BAR_W;
+      const g = ctx.createLinearGradient(bx, by, bx + BAR_W, by);
+      g.addColorStop(0,    PAL.COLD);
+      g.addColorStop(0.30, PAL.COLD);
+      g.addColorStop(0.31, PAL.FLOWING);
+      g.addColorStop(0.70, PAL.FLOWING);
+      g.addColorStop(0.71, PAL.HOT);
+      g.addColorStop(0.90, PAL.HOT);
+      g.addColorStop(0.91, PAL.CRITICAL);
+      g.addColorStop(1.0,  PAL.CRITICAL);
+      this._tempoGrad = g;
+    }
+    const grad = this._tempoGrad;
 
     // Dark track
     ctx.fillStyle = '#0a0a12';
@@ -189,19 +267,21 @@ export class UI {
     ctx.closePath();
     ctx.fill();
 
-    // Value number
+    // Value number — cache string, only rebuild when integer changes
+    const tempoInt = Math.round(this.tempo.value);
+    if (tempoInt !== this._lastTempoInt) { this._lastTempoInt = tempoInt; this._lastTempoStr = String(tempoInt); }
     const zoneColor = this.tempo.stateColor();
     ctx.fillStyle = zoneColor;
     ctx.font = `bold ${isCritical ? 14 : 13}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.fillText(`${Math.round(this.tempo.value)}`, needleX, by - 16);
+    // textAlign is already 'center' from the zone labels loop above
+    ctx.fillText(this._lastTempoStr, needleX, by - 16);
 
     // Zone name + multipliers
     const dmgMult = this.tempo.damageMultiplier();
     const spdMult = this.tempo.speedMultiplier();
     ctx.fillStyle = zoneColor;
     ctx.font = 'bold 12px monospace';
-    ctx.textAlign = 'center';
+    // textAlign still 'center'
     ctx.fillText(this.tempo.stateName(), this.width / 2, by + BAR_H + 16);
 
     ctx.fillStyle = dmgMult >= 1.3 ? PAL.HOT : (dmgMult < 1.0 ? PAL.COLD : PAL.MUTED);
@@ -227,13 +307,14 @@ export class UI {
     ctx.fillStyle = PAL.MUTED;
     ctx.fillText('HP', startX, y + segH - 3);
 
+    const hpRatio = hp / maxHp;
+    const fillColor = hpRatio > 0.5 ? '#ee4444' : (hpRatio > 0.25 ? '#ff8800' : '#ff2200');
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
     for (let i = 0; i < maxHp; i++) {
       const sx = startX + 30 + i * (segW + segGap);
-      const pct = i < hp ? 1 : 0;
-      ctx.fillStyle = pct > 0 ? (hp / maxHp > 0.5 ? '#ee4444' : (hp / maxHp > 0.25 ? '#ff8800' : '#ff2200')) : '#222';
+      ctx.fillStyle = i < hp ? fillColor : '#222';
       ctx.fillRect(sx, y, segW, segH);
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 1;
       ctx.strokeRect(sx, y, segW, segH);
     }
   }
@@ -332,13 +413,14 @@ export class UI {
     ctx.arc(px, py, 3, 0, Math.PI * 2);
     ctx.fill();
 
-    // Enemy dots
+    // Enemy dots — track last fillStyle to avoid redundant ctx.fillStyle assignments
+    let lastMinimapFill = null;
     for (const e of this.enemies) {
       if (!e.alive) continue;
-      const isBoss = e.type?.startsWith('boss');
-      ctx.fillStyle = isBoss ? PAL.CRITICAL : PAL.HOT;
+      const fill = e.isBoss ? PAL.CRITICAL : PAL.HOT;
+      if (fill !== lastMinimapFill) { ctx.fillStyle = fill; lastMinimapFill = fill; }
       const ex = ox + e.x * scaleX, ey = oy + e.y * scaleY;
-      if (isBoss) {
+      if (e.isBoss) {
         ctx.fillRect(ex - 3, ey - 3, 6, 6);
       } else {
         ctx.fillRect(ex - 1.5, ey - 1.5, 3, 3);
@@ -440,16 +522,8 @@ export class UI {
 
       ctx.save();
 
-      // Card background — no shadow to avoid bleed-through on text
-      let grad = ctx.createLinearGradient(x, y, x, y + CARD_H);
-      if (cardId && canAfford) {
-        grad.addColorStop(0, 'rgba(36, 40, 58, 0.95)');
-        grad.addColorStop(1, 'rgba(20, 20, 36, 0.95)');
-      } else {
-        grad.addColorStop(0, 'rgba(16, 16, 22, 0.90)');
-        grad.addColorStop(1, 'rgba(10, 10, 14, 0.90)');
-      }
-      ctx.fillStyle = grad;
+      // Card background — solid fill avoids per-card gradient allocation each frame
+      ctx.fillStyle = (cardId && canAfford) ? 'rgba(28, 32, 48, 0.95)' : 'rgba(13, 13, 18, 0.90)';
       ctx.beginPath();
       ctx.roundRect(x, y, cardDrawW, CARD_H, RADIUS);
       ctx.fill();
@@ -875,6 +949,16 @@ export class UI {
       ctx.font = '12px monospace';
       this._wrapText(ctx, def.desc, x + 12, y + 128, CARD_W - 24, 16);
 
+      // IDEA-07: warn Wraith players about HP relics that won't work
+      const HP_RELICS = new Set(['iron_pulse', 'deadweight', 'cold_blood', 'abyss_heart', 'lifesteal_fang', 'last_rites']);
+      if (this.player && this.player._classPassives && this.player._classPassives.noHealingFromRelics &&
+          (HP_RELICS.has(choices[i]) || def.desc.toLowerCase().includes(' hp'))) {
+        ctx.fillStyle = PAL.MUTED;
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('No HP effect (Wraith)', x + CARD_W / 2, y + CARD_H - 10);
+      }
+
       this.itemBoxes.push({ x, y, w: CARD_W, h: CARD_H, itemId: choices[i] });
     }
 
@@ -902,9 +986,9 @@ export class UI {
     ctx.fillText('UPGRADE A CARD', this.width / 2, 75);
     ctx.fillStyle = PAL.MUTED;
     ctx.font = '13px monospace';
-    ctx.fillText('+50% damage per upgrade (max 2)', this.width / 2, 105);
+    ctx.fillText('Upgrades: +50% dmg, +25% tempo, cost-1 at +2 (max 2)', this.width / 2, 105);
 
-    const CARD_W = 220, CARD_H = 175, GAP = 20;
+    const CARD_W = 220, CARD_H = 195, GAP = 20;
     const totalW = choices.length * CARD_W + (choices.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
     const startY = 135;
@@ -916,6 +1000,7 @@ export class UI {
       const def = this.deckManager.getCardDef(cardId);
       if (!def) continue;
       const level = this.deckManager.upgrades[cardId] || 0;
+      const baseCard = this.cardDefs[cardId];
 
       ctx.fillStyle = PAL.UI_PANEL;
       ctx.fillRect(x, y, CARD_W, CARD_H);
@@ -932,16 +1017,33 @@ export class UI {
 
       ctx.fillStyle = PAL.HOT;
       ctx.font = '16px monospace';
-      ctx.fillText(`Lv ${level + 1} → ${level + 2}`, x + CARD_W / 2, y + 65);
+      ctx.fillText(`Lv ${level + 1} → ${level + 2}`, x + CARD_W / 2, y + 62);
 
-      const nextDmg = Math.round(this.cardDefs[cardId].damage * (1 + 0.5 * (level + 1)));
+      // IDEA-02: show before/after damage
+      const nextDmg = baseCard && baseCard.damage > 0 ? Math.round(baseCard.damage * (1 + 0.5 * (level + 1))) : null;
       ctx.fillStyle = PAL.FLOWING;
-      ctx.font = '17px monospace';
-      ctx.fillText(`${def.damage} → ${nextDmg} DMG`, x + CARD_W / 2, y + 97);
+      ctx.font = '15px monospace';
+      if (nextDmg !== null && nextDmg > 0) {
+        ctx.fillText(`DMG: ${def.damage} → ${nextDmg}`, x + CARD_W / 2, y + 86);
+      } else {
+        ctx.fillStyle = PAL.MUTED;
+        ctx.fillText('No damage', x + CARD_W / 2, y + 86);
+      }
 
-      ctx.fillStyle = PAL.MUTED;
-      ctx.font = '14px monospace';
-      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 124);
+      // Show tempo shift before/after
+      const nextTempo = baseCard && baseCard.tempoShift !== 0
+        ? Math.round(baseCard.tempoShift * (1 + 0.25 * (level + 1))) : null;
+      ctx.fillStyle = '#88ccff';
+      ctx.font = '13px monospace';
+      if (nextTempo !== null) {
+        ctx.fillText(`Tempo: ${def.tempoShift > 0 ? '+' : ''}${def.tempoShift} → ${nextTempo > 0 ? '+' : ''}${nextTempo}`, x + CARD_W / 2, y + 106);
+      }
+
+      // Show cost before/after
+      const nextCost = (level + 1) >= 2 ? Math.max(0, (baseCard ? baseCard.cost : def.cost) - 1) : def.cost;
+      ctx.fillStyle = nextCost < def.cost ? PAL.GOLD : PAL.MUTED;
+      ctx.font = '13px monospace';
+      ctx.fillText(`Cost: ${def.cost} AP → ${nextCost} AP`, x + CARD_W / 2, y + 124);
 
       ctx.fillStyle = '#44ff88';
       ctx.font = 'bold 14px monospace';

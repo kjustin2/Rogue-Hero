@@ -7,6 +7,10 @@ export class RunManager {
     this.maxLayers = 8;
     this.seed = 0;
     this.rng = null;
+    // PERF-02: offscreen canvas cache for map grid background
+    this._mapGridCache = null;
+    this._mapGridW = 0;
+    this._mapGridH = 0;
   }
 
   // Simple seeded RNG (mulberry32)
@@ -90,6 +94,7 @@ export class RunManager {
 
     this.layers[0][0].resolved = true;
     this.currentNodeId = this.layers[0][0].id;
+    this._mapGridCache = null; // PERF-02: invalidate cache on new floor
     console.log(`[Map] Generated ${this.maxLayers}-layer map for Floor ${this.floor} (seed: ${this.seed})`);
   }
 
@@ -138,18 +143,27 @@ export class RunManager {
       { bg: '#100e06', col: '#ffd700', name: '— THE APEX' },
     ];
     const theme = floorThemes[Math.min(this.floor - 1, 4)];
-    ctx.fillStyle = theme.bg;
-    ctx.fillRect(0, 0, width, height);
 
-    // Subtle grid texture
-    ctx.strokeStyle = 'rgba(255,255,255,0.02)';
-    ctx.lineWidth = 1;
-    for (let gx = 0; gx < width; gx += 60) {
-      ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, height); ctx.stroke();
+    // PERF-02: cache map background grid to offscreen canvas
+    if (!this._mapGridCache || this._mapGridW !== width || this._mapGridH !== height) {
+      const off = document.createElement('canvas');
+      off.width = width; off.height = height;
+      const octx = off.getContext('2d');
+      octx.fillStyle = theme.bg;
+      octx.fillRect(0, 0, width, height);
+      octx.strokeStyle = 'rgba(255,255,255,0.02)';
+      octx.lineWidth = 1;
+      for (let gx = 0; gx < width; gx += 60) {
+        octx.beginPath(); octx.moveTo(gx, 0); octx.lineTo(gx, height); octx.stroke();
+      }
+      for (let gy = 0; gy < height; gy += 60) {
+        octx.beginPath(); octx.moveTo(0, gy); octx.lineTo(width, gy); octx.stroke();
+      }
+      this._mapGridCache = off;
+      this._mapGridW = width;
+      this._mapGridH = height;
     }
-    for (let gy = 0; gy < height; gy += 60) {
-      ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(width, gy); ctx.stroke();
-    }
+    ctx.drawImage(this._mapGridCache, 0, 0);
 
     // Header bar
     ctx.fillStyle = 'rgba(0,0,0,0.7)';
@@ -170,6 +184,9 @@ export class RunManager {
 
     this.clickSpheres = [];
 
+    // PERF-01: compute once instead of per-node
+    const t = Date.now() / 1000;
+
     // Room type config: color, icon emoji, label
     const nodeConfig = {
       start:  { col: '#888888', icon: '◉', label: '' },
@@ -181,7 +198,8 @@ export class RunManager {
       shop:   { col: '#44aaff', icon: '$', label: 'SHOP' },
     };
 
-    // First pass: connections
+    // First pass: connections (PERF-06: setLineDash only when needed)
+    ctx.setLineDash([]);
     for (let i = 0; i < this.maxLayers; i++) {
       for (const node of this.layers[i]) {
         const cy = START_Y - (node.layer * gapY);
@@ -193,12 +211,12 @@ export class RunManager {
           const isPast = node.layer < (this.nodeMap[this.currentNodeId]?.layer || 0);
           ctx.strokeStyle = isPast ? '#2a2a3a' : '#333355';
           ctx.lineWidth = isPast ? 1 : 1.5;
-          ctx.setLineDash(isPast ? [4, 6] : []);
+          if (isPast) { ctx.setLineDash([4, 6]); }
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(nx, ny);
           ctx.stroke();
-          ctx.setLineDash([]);
+          if (isPast) { ctx.setLineDash([]); }
         }
       }
     }
@@ -213,7 +231,6 @@ export class RunManager {
         const nn = this.nodeMap[nextId];
         const ny = START_Y - (nn.layer * gapY);
         const nx = (width * 0.25) + nn.xPos * (width * 0.5);
-        const t = Date.now() / 1000;
         const pulse = 0.4 + Math.sin(t * 3) * 0.3;
         ctx.strokeStyle = `rgba(255,255,255,${pulse})`;
         ctx.lineWidth = 2.5;
@@ -224,7 +241,8 @@ export class RunManager {
       }
     }
 
-    // Second pass: nodes
+    // Second pass: nodes (PERF-03: default font set once, override only for boss)
+    ctx.font = 'bold 13px monospace';
     for (let i = 0; i < this.maxLayers; i++) {
       for (const node of this.layers[i]) {
         const cy = START_Y - (node.layer * gapY);
@@ -241,7 +259,6 @@ export class RunManager {
 
         // Glow for valid next nodes
         if (isValidNext) {
-          const t = Date.now() / 1000;
           const glowR = rad + 10 + Math.sin(t * 3) * 4;
           ctx.save();
           ctx.shadowColor = cfg.col;
@@ -283,19 +300,35 @@ export class RunManager {
         ctx.lineWidth = isCurrent ? 3 : (isValidNext ? 2 : 1);
         ctx.stroke();
 
-        // Icon text
+        // Icon text (PERF-03: only set font for boss nodes, others use the default set above)
         ctx.fillStyle = isCurrent ? '#000' : (isValidNext ? '#fff' : (isPast ? '#333' : '#222'));
-        ctx.font = `bold ${isBoss ? 18 : 13}px monospace`;
+        if (isBoss) ctx.font = 'bold 18px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(cfg.icon, cx, cy + (isBoss ? 6 : 5));
+        if (isBoss) ctx.font = 'bold 13px monospace'; // restore
 
         // Label below node
         if (cfg.label) {
           ctx.fillStyle = isCurrent ? '#ffaa00' : (isValidNext ? cfg.col : (isPast ? '#444' : '#555566'));
-          ctx.font = `bold ${isBoss ? 15 : 13}px monospace`;
+          if (isBoss) ctx.font = 'bold 15px monospace';
           ctx.fillText(cfg.label, cx, cy + rad + 17);
+          if (isBoss) ctx.font = 'bold 13px monospace'; // restore default
         }
       }
+    }
+
+    // IDEA-11: Boss proximity warning
+    const layersLeft = this.getLayersToEnd();
+    if (layersLeft <= 2 && layersLeft > 0) {
+      const pulse = 0.6 + Math.sin(t * 4) * 0.4;
+      ctx.save();
+      ctx.fillStyle = `rgba(255,100,0,${pulse * 0.15})`;
+      ctx.fillRect(0, 0, width, height);
+      ctx.restore();
+      ctx.fillStyle = `rgba(255,${layersLeft === 1 ? 50 : 120},0,${0.7 + pulse * 0.3})`;
+      ctx.font = `bold ${layersLeft === 1 ? 18 : 15}px monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText(layersLeft === 1 ? '⚠ BOSS NEXT ⚠' : '⚠ BOSS NEAR', width / 2, height - 60);
     }
 
     // Footer

@@ -32,7 +32,9 @@
       "Bash(node --input-type=module --eval \"import\\('./src/Particles.js'\\).then\\(m => { const p = new m.ParticleSystem\\(\\); console.log\\('Has spawnRoomEntryFlash:', typeof p.spawnRoomEntryFlash, '| Has spawnCrashFlash:', typeof p.spawnCrashFlash\\); }\\).catch\\(e => console.error\\(e\\)\\)\")",
       "Bash(node check-syntax.js)",
       "Bash(ls src/*.js)",
-      "Bash(grep -v \"//\")"
+      "Bash(grep -v \"//\")",
+      "Bash(wc -l /e/Storage/SAAS/Rogue-Hero/src/*.js)",
+      "Bash(python3:*)"
     ]
   },
   "prefersReducedMotion": true
