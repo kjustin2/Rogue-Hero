@@ -957,7 +957,7 @@ export class UI {
     ctx.textAlign = 'center';
     ctx.fillText('CHOOSE A RELIC', this.width / 2, 75);
 
-    const CARD_W = 190, CARD_H = 220, GAP = 28;
+    const CARD_W = 240, CARD_H = 280, GAP = 32;
     const totalW = choices.length * CARD_W + (choices.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
     const startY = 110;
@@ -971,41 +971,41 @@ export class UI {
 
       ctx.fillStyle = PAL.UI_PANEL;
       ctx.beginPath();
-      ctx.roundRect(x, y, CARD_W, CARD_H, 12);
+      ctx.roundRect(x, y, CARD_W, CARD_H, 14);
       ctx.fill();
       ctx.fillStyle = def.color || '#aaa';
-      ctx.fillRect(x, y, CARD_W, 4);
+      ctx.fillRect(x, y, CARD_W, 5);
       ctx.strokeStyle = rarCol;
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.beginPath();
-      ctx.roundRect(x, y, CARD_W, CARD_H, 12);
+      ctx.roundRect(x, y, CARD_W, CARD_H, 14);
       ctx.stroke();
 
       // Icon circle
       ctx.save();
       ctx.shadowColor = def.color || '#aaa';
-      ctx.shadowBlur = 15;
+      ctx.shadowBlur = 20;
       ctx.fillStyle = def.color || '#aaa';
       ctx.beginPath();
-      ctx.arc(x + CARD_W / 2, y + 46, 22, 0, Math.PI * 2);
+      ctx.arc(x + CARD_W / 2, y + 54, 28, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       ctx.fillStyle = '#fff';
-      ctx.font = 'bold 22px monospace';
+      ctx.font = 'bold 28px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(def.name[0], x + CARD_W / 2, y + 54);
+      ctx.fillText(def.name[0], x + CARD_W / 2, y + 63);
 
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 16px monospace';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 85);
+      ctx.font = 'bold 19px monospace';
+      ctx.fillText(def.name, x + CARD_W / 2, y + 102);
 
       ctx.fillStyle = rarCol;
-      ctx.font = 'bold 11px monospace';
-      ctx.fillText(def.rarity.toUpperCase(), x + CARD_W / 2, y + 103);
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(def.rarity.toUpperCase(), x + CARD_W / 2, y + 122);
 
       ctx.fillStyle = '#ccc';
-      ctx.font = '12px monospace';
-      this._wrapText(ctx, def.desc, x + 12, y + 128, CARD_W - 24, 16);
+      ctx.font = '14px monospace';
+      this._wrapText(ctx, def.desc, x + 14, y + 148, CARD_W - 28, 20);
 
       // IDEA-07: warn Wraith players about HP relics that won't work
       const HP_RELICS = new Set(['iron_pulse', 'deadweight', 'cold_blood', 'abyss_heart', 'lifesteal_fang', 'last_rites']);
@@ -1043,13 +1043,13 @@ export class UI {
     ctx.textAlign = 'center';
     ctx.fillText('UPGRADE A CARD', this.width / 2, 75);
     ctx.fillStyle = PAL.MUTED;
-    ctx.font = '13px monospace';
+    ctx.font = '14px monospace';
     ctx.fillText('Upgrades: +50% dmg, +25% tempo, cost-1 at +2 (max 2)', this.width / 2, 105);
 
-    const CARD_W = 220, CARD_H = 195, GAP = 20;
+    const CARD_W = 265, CARD_H = 240, GAP = 18;
     const totalW = choices.length * CARD_W + (choices.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
-    const startY = 135;
+    const startY = 130;
     this.upgradeBoxes = [];
 
     for (let i = 0; i < choices.length; i++) {
@@ -1061,51 +1061,55 @@ export class UI {
       const baseCard = this.cardDefs[cardId];
 
       ctx.fillStyle = PAL.UI_PANEL;
-      ctx.fillRect(x, y, CARD_W, CARD_H);
+      ctx.beginPath();
+      ctx.roundRect(x, y, CARD_W, CARD_H, 10);
+      ctx.fill();
       ctx.fillStyle = def.color || '#aaa';
-      ctx.fillRect(x, y, 3, CARD_H);
+      ctx.fillRect(x, y, 4, CARD_H);
       ctx.strokeStyle = '#44aaff';
       ctx.lineWidth = 2;
-      ctx.strokeRect(x, y, CARD_W, CARD_H);
+      ctx.beginPath();
+      ctx.roundRect(x, y, CARD_W, CARD_H, 10);
+      ctx.stroke();
 
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 20px monospace';
+      ctx.font = 'bold 24px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 38);
+      ctx.fillText(def.name, x + CARD_W / 2, y + 44);
 
       ctx.fillStyle = PAL.HOT;
-      ctx.font = '16px monospace';
-      ctx.fillText(`Lv ${level + 1} → ${level + 2}`, x + CARD_W / 2, y + 62);
+      ctx.font = '18px monospace';
+      ctx.fillText(`Lv ${level + 1} → ${level + 2}`, x + CARD_W / 2, y + 72);
 
       // IDEA-02: show before/after damage
       const nextDmg = baseCard && baseCard.damage > 0 ? Math.round(baseCard.damage * (1 + 0.5 * (level + 1))) : null;
       ctx.fillStyle = PAL.FLOWING;
-      ctx.font = '15px monospace';
+      ctx.font = '17px monospace';
       if (nextDmg !== null && nextDmg > 0) {
-        ctx.fillText(`DMG: ${def.damage} → ${nextDmg}`, x + CARD_W / 2, y + 86);
+        ctx.fillText(`DMG: ${def.damage} → ${nextDmg}`, x + CARD_W / 2, y + 100);
       } else {
         ctx.fillStyle = PAL.MUTED;
-        ctx.fillText('No damage', x + CARD_W / 2, y + 86);
+        ctx.fillText('No damage', x + CARD_W / 2, y + 100);
       }
 
       // Show tempo shift before/after
       const nextTempo = baseCard && baseCard.tempoShift !== 0
         ? Math.round(baseCard.tempoShift * (1 + 0.25 * (level + 1))) : null;
       ctx.fillStyle = '#88ccff';
-      ctx.font = '13px monospace';
+      ctx.font = '15px monospace';
       if (nextTempo !== null) {
-        ctx.fillText(`Tempo: ${def.tempoShift > 0 ? '+' : ''}${def.tempoShift} → ${nextTempo > 0 ? '+' : ''}${nextTempo}`, x + CARD_W / 2, y + 106);
+        ctx.fillText(`Tempo: ${def.tempoShift > 0 ? '+' : ''}${def.tempoShift} → ${nextTempo > 0 ? '+' : ''}${nextTempo}`, x + CARD_W / 2, y + 124);
       }
 
       // Show cost before/after
       const nextCost = (level + 1) >= 2 ? Math.max(0, (baseCard ? baseCard.cost : def.cost) - 1) : def.cost;
       ctx.fillStyle = nextCost < def.cost ? PAL.GOLD : PAL.MUTED;
-      ctx.font = '13px monospace';
-      ctx.fillText(`Cost: ${def.cost} AP → ${nextCost} AP`, x + CARD_W / 2, y + 124);
+      ctx.font = '15px monospace';
+      ctx.fillText(`Cost: ${def.cost} AP → ${nextCost} AP`, x + CARD_W / 2, y + 148);
 
       ctx.fillStyle = '#44ff88';
-      ctx.font = 'bold 14px monospace';
-      ctx.fillText('CLICK TO UPGRADE', x + CARD_W / 2, y + CARD_H - 14);
+      ctx.font = 'bold 16px monospace';
+      ctx.fillText('CLICK TO UPGRADE', x + CARD_W / 2, y + CARD_H - 16);
 
       this.upgradeBoxes = this.upgradeBoxes || [];
       this.upgradeBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
