@@ -113,11 +113,21 @@ export class ParticleSystem {
     }
 
     // Damage numbers — track last font to skip redundant ctx.font assignments
+    // Shadow pass (dark offset) replaces ctx.strokeText to avoid expensive glyph outline computation
     if (this.texts.length > 0) {
       ctx.textAlign = 'center';
-      ctx.strokeStyle = '#000';
-      ctx.lineWidth = 3;
       let lastFont = null;
+      // Single dark-shadow pass first, then color pass — avoids per-number state toggle
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      for (let i = 0; i < this.texts.length; i++) {
+        const t = this.texts[i];
+        const alpha = Math.max(0, t.life / t.maxLife);
+        ctx.globalAlpha = alpha;
+        const font = `bold ${t.size || 16}px monospace`;
+        if (font !== lastFont) { ctx.font = font; lastFont = font; }
+        ctx.fillText(t.text, t.x + 1, t.y + 1);
+      }
+      lastFont = null;
       for (let i = 0; i < this.texts.length; i++) {
         const t = this.texts[i];
         const alpha = Math.max(0, t.life / t.maxLife);
@@ -125,7 +135,6 @@ export class ParticleSystem {
         ctx.fillStyle = t.color;
         const font = `bold ${t.size || 16}px monospace`;
         if (font !== lastFont) { ctx.font = font; lastFont = font; }
-        ctx.strokeText(t.text, t.x, t.y);
         ctx.fillText(t.text, t.x, t.y);
       }
       ctx.globalAlpha = 1.0;

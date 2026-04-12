@@ -117,6 +117,9 @@ let introBoxes = [];
 let discardPendingCardId = null;
 let discardReturnState = 'map';
 
+// Stats screen: delay before accepting input so a death-click doesn't instantly skip it
+let statsInputDelay = 0;
+
 // Zone transition first-time tooltip
 let seenZones = new Set();
 let zoneTooltip = null; // { text, color, timer }
@@ -247,6 +250,8 @@ events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
     runStats.finalDeck = [...deckManager.collection];
     checkRunUnlocks(false);
     gameState = 'stats';
+    statsInputDelay = 2.0; // prevent accidental skip from last-frame click
+    input.clearFrame();
     runStats.won = false;
   }
 });
@@ -821,6 +826,8 @@ function handleCombatClear() {
       runStats.finalDeck = [...deckManager.collection];
       checkRunUnlocks(true);
       gameState = 'stats';
+      statsInputDelay = 2.0;
+      input.clearFrame();
       currentCombatNode = null;
       return;
     }
@@ -1125,6 +1132,11 @@ function update(logicDt, realDt) {
 
   // ── STATS (replaces dead/victory) ──
   if (gameState === 'stats') {
+    if (statsInputDelay > 0) {
+      statsInputDelay -= dt;
+      input.clearFrame();
+      return;
+    }
     if (input.consumeKey('enter') || input.consumeClick()) {
       gameState = 'charSelect';
       selectedCharId = null;
@@ -2145,13 +2157,13 @@ function render() {
 
     charSelectBoxes = [];
     const chars = CharacterList;
-    const GAP = 18;
-    // Responsive sizing: fit all chars on screen
-    const CARD_W = Math.min(240, Math.floor((canvas.width - 60 - (chars.length - 1) * GAP) / chars.length));
-    const CARD_H = Math.min(370, Math.floor(canvas.height * 0.62));
+    const GAP = 10;
+    // Responsive sizing: fit all chars on screen — larger cards
+    const CARD_W = Math.min(300, Math.floor((canvas.width - 30 - (chars.length - 1) * GAP) / chars.length));
+    const CARD_H = Math.min(460, Math.floor(canvas.height * 0.76));
     const totalW = chars.length * CARD_W + (chars.length - 1) * GAP;
     const startX = (canvas.width - totalW) / 2;
-    const startY = 110;
+    const startY = 104;
 
     for (let i = 0; i < chars.length; i++) {
       const ch = chars[i];
@@ -2201,77 +2213,79 @@ function render() {
         const nextThreshold = THRESHOLDS[masteryLevel] || null;
 
         ctx.fillStyle = ch.color;
-        ctx.font = `bold ${Math.min(24, CARD_W / 10)}px monospace`;
+        ctx.font = `bold ${Math.min(28, Math.max(18, Math.floor(CARD_W / 9)))}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText(ch.name, x + CARD_W / 2, startY + 32);
+        ctx.fillText(ch.name, x + CARD_W / 2, startY + 36);
         ctx.fillStyle = '#aabbcc';
-        ctx.font = `bold ${Math.min(13, Math.max(11, Math.floor(CARD_W / 16)))}px monospace`;
-        ctx.fillText(ch.title, x + CARD_W / 2, startY + 50);
+        ctx.font = `bold ${Math.min(14, Math.max(11, Math.floor(CARD_W / 15)))}px monospace`;
+        ctx.fillText(ch.title, x + CARD_W / 2, startY + 56);
 
         // Description
         ctx.fillStyle = '#99aabb';
-        ctx.font = '12px monospace';
-        const descLines = ui._wrapTextLines(ch.description, CARD_W - 20, 12);
-        for (let dl = 0; dl < Math.min(descLines.length, 3); dl++) {
-          ctx.fillText(descLines[dl], x + CARD_W / 2, startY + 68 + dl * 15);
+        ctx.font = '13px monospace';
+        const descLines = ui._wrapTextLines(ch.description, CARD_W - 20, 13);
+        for (let dl = 0; dl < Math.min(descLines.length, 4); dl++) {
+          ctx.fillText(descLines[dl], x + CARD_W / 2, startY + 76 + dl * 16);
         }
 
         // Stats: two rows so they don't crowd each other
-        const statsY = startY + 118;
-        ctx.font = '12px monospace';
+        const statsY = startY + 142;
+        ctx.font = '13px monospace';
         ctx.fillStyle = '#ee5555';
         ctx.fillText(`♥ ${ch.hp} HP`, x + CARD_W / 3, statsY);
         ctx.fillStyle = '#44aaff';
         ctx.fillText(`${ch.apRegen} AP/s`, x + CARD_W * 2 / 3, statsY);
         ctx.fillStyle = '#44ff88';
-        ctx.font = '12px monospace';
-        ctx.fillText(`${ch.baseSpeed} SPD`, x + CARD_W / 2, statsY + 17);
+        ctx.font = '13px monospace';
+        ctx.fillText(`${ch.baseSpeed} SPD`, x + CARD_W / 2, statsY + 19);
 
         // Per-char stats
         ctx.fillStyle = '#6677aa';
-        ctx.font = '11px monospace';
-        ctx.fillText(`Runs: ${charStats.runs}  ·  Wins: ${charStats.wins}`, x + CARD_W / 2, statsY + 34);
+        ctx.font = '12px monospace';
+        ctx.fillText(`Runs: ${charStats.runs}  ·  Wins: ${charStats.wins}`, x + CARD_W / 2, statsY + 38);
 
         // Mastery progress bar
-        const masY = statsY + 52;
+        const masY = statsY + 58;
+        const masBarH = 18;
         ctx.fillStyle = '#222235';
-        ctx.fillRect(x + 8, masY, CARD_W - 16, 14);
+        ctx.fillRect(x + 8, masY, CARD_W - 16, masBarH);
         const masThresh = nextThreshold || THRESHOLDS[THRESHOLDS.length - 1];
         const masPct = nextThreshold ? Math.min(1, masteryRuns / masThresh) : 1;
         const masColor = masteryLevel >= 4 ? '#ffd700' : (masteryLevel >= 2 ? '#cc88ff' : ch.color);
         ctx.fillStyle = masColor + '99';
-        ctx.fillRect(x + 8, masY, (CARD_W - 16) * masPct, 14);
-        ctx.strokeStyle = masColor + '66'; ctx.lineWidth = 1; ctx.strokeRect(x + 8, masY, CARD_W - 16, 14);
+        ctx.fillRect(x + 8, masY, (CARD_W - 16) * masPct, masBarH);
+        ctx.strokeStyle = masColor + '66'; ctx.lineWidth = 1; ctx.strokeRect(x + 8, masY, CARD_W - 16, masBarH);
         ctx.fillStyle = '#ddd';
-        ctx.font = 'bold 10px monospace';
-        const masLabel = masteryLevel >= 4 ? 'MASTERY MAX' : `Lv${masteryLevel} → Lv${masteryLevel + 1}: ${masteryRuns}/${masThresh} runs`;
-        ctx.fillText(masLabel, x + CARD_W / 2, masY + 10);
+        ctx.font = 'bold 12px monospace';
+        const masLabel = masteryLevel >= 4 ? 'MASTERY MAX' : `Lv${masteryLevel}→${masteryLevel + 1}: ${masteryRuns}/${masThresh}`;
+        ctx.fillText(masLabel, x + CARD_W / 2, masY + masBarH - 4);
 
         // Mastery card unlocks
         ctx.fillStyle = '#44bb77';
-        ctx.font = 'bold 11px monospace';
-        ctx.fillText('MASTERY CARDS', x + CARD_W / 2, masY + 28);
+        ctx.font = 'bold 13px monospace';
+        ctx.fillText('MASTERY CARDS', x + CARD_W / 2, masY + masBarH + 18);
         const mCards = ch.masteryCards || [];
         for (let mc = 0; mc < Math.min(mCards.length, 4); mc++) {
           const unlocked = mc < masteryLevel;
           const cDef = CardDefinitions[mCards[mc]];
           const cName = cDef ? cDef.name : mCards[mc];
           ctx.fillStyle = unlocked ? '#88ffaa' : '#445566';
-          ctx.font = `${unlocked ? 'bold ' : ''}10px monospace`;
-          ctx.fillText(`Lv${mc + 1}: ${unlocked ? cName : '???'}`, x + CARD_W / 2, masY + 42 + mc * 14);
+          ctx.font = `${unlocked ? 'bold ' : ''}13px monospace`;
+          ctx.fillText(`Lv${mc + 1}: ${unlocked ? cName : '???'}`, x + CARD_W / 2, masY + masBarH + 36 + mc * 18);
         }
 
-        // Difficulty unlock badges
+        // Difficulty unlock badges — taller with larger font
         const maxD = meta.getMaxDifficulty(ch.id);
-        const badgeY = startY + CARD_H - 24;
+        const badgeH = 28;
+        const badgeY = startY + CARD_H - badgeH - 8;
         const badgeW = Math.floor((CARD_W - 16) / 3);
         for (let d = 0; d <= 2; d++) {
           const bx2 = x + 8 + d * badgeW;
           ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] + '33' : '#111';
-          ctx.fillRect(bx2, badgeY, badgeW - 2, 18);
+          ctx.fillRect(bx2, badgeY, badgeW - 2, badgeH);
           ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] : '#444';
-          ctx.font = d <= maxD ? 'bold 10px monospace' : '10px monospace';
-          ctx.fillText(DIFFICULTY_NAMES[d], bx2 + (badgeW - 2) / 2, badgeY + 12);
+          ctx.font = d <= maxD ? 'bold 13px monospace' : '12px monospace';
+          ctx.fillText(DIFFICULTY_NAMES[d], bx2 + (badgeW - 2) / 2, badgeY + badgeH * 0.65);
         }
       }
       charSelectBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, charId: ch.id, action: 'select' });
@@ -2358,10 +2372,10 @@ function render() {
     ctx.fillStyle = '#aa88cc';
     ctx.fillText(`${itemManager.equipped.length} Relics`, canvas.width - 18, 40);
 
-    // Visible inventory button — above the map footer
+    // Visible inventory button — right side, doesn't block map content
     const invOpen = ui.showInventory;
     const invBtnW = 240, invBtnH = 40;
-    const invBtnX = canvas.width / 2 - invBtnW / 2;
+    const invBtnX = canvas.width - invBtnW - 16;
     const invBtnY = canvas.height - invBtnH - 56; // above the 48px footer + gap
     ctx.fillStyle = invOpen ? 'rgba(68,255,136,0.25)' : 'rgba(30,30,50,0.85)';
     ctx.beginPath();
@@ -2373,7 +2387,7 @@ function render() {
     ctx.fillStyle = invOpen ? '#44ff88' : '#baccdd';
     ctx.font = 'bold 16px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('[I]  View Cards & Relics', canvas.width / 2, invBtnY + 26);
+    ctx.fillText('[I]  View Cards & Relics', invBtnX + invBtnW / 2, invBtnY + 26);
 
     // Inventory overlay
     if (invOpen) {
@@ -2489,14 +2503,37 @@ function render() {
 
   // ── STATS ──
   if (gameState === 'stats') {
-    const score = calculateScore(runStats);
-    meta.submitScore({
-      score, character: runStats.character, floor: runStats.floor,
-      difficulty: runStats.difficulty, seed: runStats.seed,
-      date: new Date().toISOString()
-    });
+    // Score is computed once; re-use cached value to avoid recalculating every frame
+    if (!runStats._cachedScore) {
+      runStats._cachedScore = calculateScore(runStats);
+      meta.submitScore({
+        score: runStats._cachedScore, character: runStats.character, floor: runStats.floor,
+        difficulty: runStats.difficulty, seed: runStats.seed,
+        date: new Date().toISOString()
+      });
+    }
     ui.newUnlocks = newUnlocks;
-    ui.drawStatsScreen(renderer.ctx, runStats, score, meta.getLeaderboard());
+    const waitingForInput = statsInputDelay > 0;
+    ui.drawStatsScreen(renderer.ctx, runStats, runStats._cachedScore, meta.getLeaderboard(), waitingForInput);
+    return;
+  }
+
+  // ── PAUSED FROM MAP: show map, not the battle room ──
+  if (gameState === 'paused' && prevStateBeforePause === 'map') {
+    runManager.drawMap(renderer.ctx, canvas.width, canvas.height);
+    const _ctx = renderer.ctx;
+    const _ch = Characters[selectedCharId];
+    _ctx.fillStyle = _ch ? _ch.color : '#aaa';
+    _ctx.font = 'bold 16px monospace';
+    _ctx.textAlign = 'left';
+    _ctx.fillText(`${_ch?.name || '?'}`, 18, 28);
+    const _hpW = 160, _hpH = 14;
+    _ctx.fillStyle = '#331111'; _ctx.fillRect(18, 34, _hpW, _hpH);
+    _ctx.fillStyle = '#ee3333'; _ctx.fillRect(18, 34, (player.hp / player.maxHp) * _hpW, _hpH);
+    _ctx.strokeStyle = '#553333'; _ctx.lineWidth = 1; _ctx.strokeRect(18, 34, _hpW, _hpH);
+    _ctx.fillStyle = '#fff'; _ctx.font = 'bold 11px monospace';
+    _ctx.fillText(`${player.hp}/${player.maxHp} HP`, 18 + _hpW + 8, 46);
+    drawPauseMenu();
     return;
   }
 
@@ -2514,6 +2551,8 @@ function render() {
     combat.drawRangeIndicator(renderer.ctx, player, deckManager.hand, CardDefinitions, selectedCardSlot);
     combat.drawReticles(renderer.ctx, deckManager.hand, CardDefinitions, now);
   }
+  // Set shared font once before enemy draw loop — avoids per-enemy ctx.font assignment
+  renderer.ctx.font = 'bold 13px monospace';
   for (const e of enemies) e.draw(renderer.ctx, now);
   // Batched health bar pass — standard enemies cache _hbColor in drawBody;
   // bosses/special enemies draw their own bars inside their draw() above

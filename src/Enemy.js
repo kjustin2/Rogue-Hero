@@ -110,13 +110,15 @@ export class Enemy extends Entity {
     ctx.fillStyle = barColor;
     ctx.fillRect(bx, by, w * pct, bh);
 
-    // Segment ticks (every 25% of max HP)
+    // Segment ticks (every 25% of max HP) — single path to avoid 3× stroke calls
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
     ctx.lineWidth = 1;
+    ctx.beginPath();
     for (let s = 1; s <= 3; s++) {
       const tx = bx + w * (s / 4);
-      ctx.beginPath(); ctx.moveTo(tx, by); ctx.lineTo(tx, by + bh); ctx.stroke();
+      ctx.moveTo(tx, by); ctx.lineTo(tx, by + bh);
     }
+    ctx.stroke();
   }
 
   drawBody(ctx, label, color, now) {
@@ -177,7 +179,7 @@ export class Enemy extends Entity {
     }
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 13px monospace';
+    // Font is set once per frame by the draw loop in main.js (bold 13px monospace)
     ctx.textAlign = 'center';
     ctx.fillText(label, this.x, this.y - this.r - 20);
 

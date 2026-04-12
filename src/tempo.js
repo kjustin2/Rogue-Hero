@@ -169,18 +169,16 @@ export class TempoSystem {
     this.value = coldResetVal;
     this.targetValue = coldResetVal;
     this.crashRecoverTimer = 0.6;
-    events.emit('HIT_STOP', 0.25);
     events.emit('SCREEN_SHAKE', { duration: 0.45, intensity: 0.9 });
     events.emit('PLAY_SOUND', 'crash');
   }
 
-  _doCrash(hitStopDur, shakeDur, shakeIntens) {
+  _doCrash(_hitStopDur, shakeDur, shakeIntens) {
     this.isCrashed = true;
     // Berserker Heart (BUG-04): crash resets to 80 instead of default
     const resetVal = (this.itemManager && this.itemManager.has('berserker_heart')) ? 80 : this.crashResetValue;
     this.value = resetVal;
     this.targetValue = resetVal; // Fix: reset target so it doesn't ramp back to 100
-    events.emit('HIT_STOP', hitStopDur);
     events.emit('SCREEN_SHAKE', { duration: shakeDur, intensity: shakeIntens });
     events.emit('PLAY_SOUND', 'crash');
     this.crashRecoverTimer = shakeDur + 0.05;

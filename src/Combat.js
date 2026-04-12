@@ -338,7 +338,6 @@ export class CombatManager {
           this.particles.spawnRing(nearest.x, nearest.y, 100, '#00eedd');
         }
 
-        events.emit('HIT_STOP', cardDef.cost > 2 ? 0.1 : 0.04);
         if (cardDef.cost > 2) events.emit('SCREEN_SHAKE', { duration: 0.15, intensity: 0.3 });
         this.particles.spawnSlash(player.x, player.y, nearest.x, nearest.y, cardColor);
         this.particles.spawnBurst(nearest.x, nearest.y, cardColor);
@@ -452,7 +451,6 @@ export class CombatManager {
           nearest.marked = true;
           this.particles.spawnDamageNumber(nearest.x, nearest.y - 20, 'MARKED');
         }
-        events.emit('HIT_STOP', 0.08);
         events.emit('SCREEN_SHAKE', { duration: 0.1, intensity: 0.25 });
         this.particles.spawnSlash(player.x, player.y, nearest.x, nearest.y, cardColor);
         events.emit('PLAY_SOUND', 'hit');
@@ -601,7 +599,6 @@ export class CombatManager {
       // Visual feedback — small muzzle burst
       this.particles.spawnBurst(player.x, player.y, col);
       events.emit('PLAY_SOUND', 'hit');
-      events.emit('HIT_STOP', 0.03);
       return true;
     }
 
@@ -814,7 +811,6 @@ export class CombatManager {
     });
 
     if (hitAny) {
-      events.emit('HIT_STOP', 0.05);
       events.emit('SCREEN_SHAKE', { duration: 0.1, intensity: 0.15 });
       events.emit('PLAY_SOUND', 'hit');
     } else {
@@ -840,7 +836,6 @@ export class CombatManager {
       this.particles.spawnSlash(player.x, player.y, player.x + cx*cardDef.range, player.y + cy*cardDef.range, cardColor);
     }
     if (hitAny) {
-      events.emit('HIT_STOP', 0.1);
       events.emit('SCREEN_SHAKE', { duration: 0.12, intensity: 0.25 });
       events.emit('PLAY_SOUND', 'heavyHit');
     } else {
@@ -864,7 +859,6 @@ export class CombatManager {
       }
     }
     if (hitAny) {
-      events.emit('HIT_STOP', 0.12);
       events.emit('SCREEN_SHAKE', { duration: 0.15, intensity: 0.35 });
       events.emit('PLAY_SOUND', 'heavyHit');
       this.particles.spawnRing(player.x, player.y, cardDef.range, '#ff3333');
@@ -909,7 +903,6 @@ export class CombatManager {
         this.applyDamageToEnemy(e, dmg);
         this.particles.spawnBurst(e.x, e.y, '#ff8800');
         events.emit('PLAY_SOUND', 'hit');
-        events.emit('HIT_STOP', 0.06);
         break; // Only hit one enemy per dash
       }
     }

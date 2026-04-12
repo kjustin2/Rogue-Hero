@@ -722,9 +722,9 @@ export class UI {
       }
     }
 
-    const GAP = 14;
-    const CARD_W = 175, CARD_H = 215;
-    const COLS = Math.floor((this.width - 60) / (CARD_W + GAP));
+    const GAP = 16;
+    const CARD_W = 240, CARD_H = 310;
+    const COLS = Math.floor((this.width - 40) / (CARD_W + GAP));
     const totalW = COLS * (CARD_W + GAP) - GAP;
     const startX = (this.width - totalW) / 2;
     const startY = 140;
@@ -755,29 +755,29 @@ export class UI {
 
       if (isEquipped) {
         ctx.fillStyle = PAL.GOLD;
-        ctx.font = 'bold 12px monospace';
+        ctx.font = 'bold 13px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText(`SLOT ${equippedSlot + 1}`, x + CARD_W - 5, y + 16);
+        ctx.fillText(`SLOT ${equippedSlot + 1}`, x + CARD_W - 5, y + 18);
       }
       ctx.textAlign = 'center';
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = 'bold 16px monospace';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 30);
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(def.name, x + CARD_W / 2, y + 36);
       ctx.fillStyle = rarCol;
-      ctx.font = '13px monospace';
-      ctx.fillText((def.rarity || 'common').toUpperCase(), x + CARD_W / 2, y + 47);
-      ctx.fillStyle = '#44aaff';
       ctx.font = '14px monospace';
-      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 65);
+      ctx.fillText((def.rarity || 'common').toUpperCase(), x + CARD_W / 2, y + 56);
+      ctx.fillStyle = '#44aaff';
+      ctx.font = '15px monospace';
+      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 78);
       ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
-      ctx.font = 'bold 14px monospace';
-      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 83);
+      ctx.font = 'bold 15px monospace';
+      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', x + CARD_W / 2, y + 100);
       ctx.fillStyle = def.color || '#888';
-      ctx.font = 'bold 13px monospace';
-      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 103);
+      ctx.font = 'bold 15px monospace';
+      ctx.fillText(def.type.toUpperCase(), x + CARD_W / 2, y + 122);
       ctx.fillStyle = PAL.MUTED;
-      ctx.font = '12px monospace';
-      this._wrapText(ctx, def.desc, x + 8, y + 123, CARD_W - 16, 16);
+      ctx.font = '14px monospace';
+      this._wrapText(ctx, def.desc, x + 10, y + 146, CARD_W - 20, 20);
       this.prepBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
     }
 
@@ -1182,10 +1182,10 @@ export class UI {
       this.shopBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId: shopCards[i] });
     }
 
-    ctx.fillStyle = PAL.MUTED;
-    ctx.font = '14px monospace';
+    ctx.fillStyle = '#aabbcc';
+    ctx.font = 'bold 22px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Press ENTER to leave', this.width / 2, this.height - 36);
+    ctx.fillText('[ PRESS ENTER TO LEAVE ]', this.width / 2, this.height - 32);
   }
 
   handleShopClick(mx, my) {
@@ -1197,7 +1197,7 @@ export class UI {
   }
 
   // ───────────── STATS SCREEN ─────────────
-  drawStatsScreen(ctx, stats, score, leaderboard) {
+  drawStatsScreen(ctx, stats, score, leaderboard, waitingForInput = false) {
     ctx.fillStyle = 'rgba(0,0,0,0.93)';
     ctx.fillRect(0, 0, this.width, this.height);
 
@@ -1307,10 +1307,17 @@ export class UI {
       }
     }
 
-    ctx.fillStyle = PAL.MUTED;
-    ctx.font = '16px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Press ENTER to continue', this.width / 2, this.height - 36);
+    if (waitingForInput) {
+      ctx.fillStyle = '#333';
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('...', this.width / 2, this.height - 36);
+    } else {
+      ctx.fillStyle = '#aabbcc';
+      ctx.font = 'bold 20px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('[ PRESS ENTER TO CONTINUE ]', this.width / 2, this.height - 36);
+    }
 
     // Show unlocks from this run
     if (this.newUnlocks && this.newUnlocks.length > 0) {

@@ -242,7 +242,7 @@ export class RunManager {
     }
 
     // Second pass: nodes (PERF-03: default font set once, override only for boss)
-    ctx.font = 'bold 13px monospace';
+    ctx.font = 'bold 16px monospace';
     for (let i = 0; i < this.maxLayers; i++) {
       for (const node of this.layers[i]) {
         const cy = START_Y - (node.layer * gapY);
@@ -305,14 +305,14 @@ export class RunManager {
         if (isBoss) ctx.font = 'bold 18px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(cfg.icon, cx, cy + (isBoss ? 6 : 5));
-        if (isBoss) ctx.font = 'bold 13px monospace'; // restore
+        if (isBoss) ctx.font = 'bold 16px monospace'; // restore
 
         // Label below node
         if (cfg.label) {
           ctx.fillStyle = isCurrent ? '#ffaa00' : (isValidNext ? cfg.col : (isPast ? '#444' : '#555566'));
-          if (isBoss) ctx.font = 'bold 15px monospace';
-          ctx.fillText(cfg.label, cx, cy + rad + 17);
-          if (isBoss) ctx.font = 'bold 13px monospace'; // restore default
+          if (isBoss) ctx.font = 'bold 18px monospace';
+          ctx.fillText(cfg.label, cx, cy + rad + 20);
+          if (isBoss) ctx.font = 'bold 16px monospace'; // restore default
         }
       }
     }
