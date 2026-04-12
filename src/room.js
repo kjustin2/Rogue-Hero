@@ -142,6 +142,32 @@ export class RoomManager {
       ctx.beginPath(); ctx.moveTo(this.FLOOR_X1, y); ctx.lineTo(this.FLOOR_X2, y); ctx.stroke();
     }
 
+    // Floor variation: scorch/dirt marks (seeded by variant + pillar count)
+    {
+      const seed0 = (this.variant.charCodeAt(0) * 31 + this.pillars.length * 7 + 1) | 0;
+      const numMarks = 5 + (seed0 % 5);
+      for (let m = 0; m < numMarks; m++) {
+        // LCG-style hash per mark — no Math.random so cache stays deterministic
+        const s1 = ((seed0 * 1664525 + 1013904223 + m * 22695477) >>> 0);
+        const s2 = ((s1   * 1664525 + 1013904223) >>> 0);
+        const s3 = ((s2   * 1664525 + 1013904223) >>> 0);
+        const mx2 = this.FLOOR_X1 + 20 + (s1 % (fw - 40));
+        const my2 = this.FLOOR_Y1 + 20 + (s2 % (fh - 40));
+        const mr  = 10 + (s3 % 28);
+        ctx.beginPath();
+        ctx.arc(mx2, my2, mr, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.13)';
+        ctx.fill();
+      }
+    }
+
+    // Pillar drop shadows (drawn before the pillar bodies)
+    const shadowOff = 9;
+    for (const p of this.pillars) {
+      ctx.fillStyle = 'rgba(0,0,0,0.38)';
+      ctx.fillRect(p.x + shadowOff, p.y + shadowOff, p.w, p.h);
+    }
+
     // Draw pillars
     for (const p of this.pillars) {
       ctx.fillStyle = tc.pillar;

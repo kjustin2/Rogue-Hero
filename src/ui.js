@@ -196,6 +196,11 @@ export class UI {
     ctx.save();
     if (this.tempoZoneOccupied) ctx.globalAlpha = 0.35;
 
+    // Crash flash overlay — triggered externally via ui.triggerTempoCrash()
+    if (this._tempoCrashFlash > 0) {
+      this._tempoCrashFlash = Math.max(0, this._tempoCrashFlash - 0.025);
+    }
+
     // Background
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(bx - 4, by - 22, BAR_W + 8, BAR_H + 30);
@@ -300,7 +305,19 @@ export class UI {
     ctx.textAlign = 'right';
     ctx.fillText(`SPD ×${spdMult.toFixed(1)}`, bx + BAR_W, by + BAR_H + 16);
 
+    // Crash flash: white sweep over bar fading out
+    if (this._tempoCrashFlash > 0) {
+      ctx.globalAlpha = this._tempoCrashFlash * 0.7;
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(bx, by, BAR_W, BAR_H);
+      ctx.globalAlpha = this.tempoZoneOccupied ? 0.35 : 1;
+    }
+
     ctx.restore(); // end tempoZoneOccupied fade scope
+  }
+
+  triggerTempoCrash() {
+    this._tempoCrashFlash = 1.0;
   }
 
   // ── HP — top left, bigger segments with color shift
@@ -316,10 +333,31 @@ export class UI {
     ctx.fillStyle = PAL.MUTED;
     ctx.fillText('HP', startX, y + segH - 3);
 
+    // HP ghost bar — tracks damage taken and slowly decays
+    const nowMs = performance.now();
+    const currentPct = hp / maxHp;
+    if (this._hpGhostPct === undefined) this._hpGhostPct = currentPct;
+    if (currentPct < this._hpGhostPct) {
+      this._hpGhostPct = Math.max(this._hpGhostPct, currentPct); // snap ghost to current if below
+      this._hpGhostHoldUntil = nowMs + 500;
+    } else {
+      this._hpGhostPct = currentPct; // snap up immediately when healed
+    }
+    if (nowMs > (this._hpGhostHoldUntil || 0)) {
+      this._hpGhostPct = Math.max(currentPct, this._hpGhostPct - 0.003);
+    }
+
     const hpRatio = hp / maxHp;
     const fillColor = hpRatio > 0.5 ? '#ee4444' : (hpRatio > 0.25 ? '#ff8800' : '#ff2200');
     ctx.strokeStyle = '#333';
     ctx.lineWidth = 1;
+    const totalBarW = maxHp * (segW + segGap) - segGap;
+    // Ghost fill
+    if (this._hpGhostPct > currentPct) {
+      ctx.fillStyle = 'rgba(255,80,80,0.28)';
+      ctx.fillRect(startX + 30 + Math.floor(currentPct * maxHp) * (segW + segGap), y,
+        Math.ceil((this._hpGhostPct - currentPct) * totalBarW), segH);
+    }
     for (let i = 0; i < maxHp; i++) {
       const sx = startX + 30 + i * (segW + segGap);
       ctx.fillStyle = i < hp ? fillColor : '#222';
@@ -340,10 +378,24 @@ export class UI {
     ctx.fillStyle = '#4488ff';
     ctx.fillText('AP', startX, y + segH - 2);
 
+    // Track newly filled pips for flash animation
+    const budgetInt = Math.floor(b);
+    if (budgetInt > (this._lastBudgetInt || 0) && (this._lastBudgetInt || 0) >= 0) {
+      this._apFlashSlot = budgetInt - 1;
+      this._apFlashStart = performance.now();
+    }
+    this._lastBudgetInt = budgetInt;
+
     for (let i = 0; i < mb; i++) {
       const sx = startX + 30 + i * (segW + segGap);
-      ctx.fillStyle = i < Math.floor(b) ? '#44aaff' : '#1a2a44';
+      const filled = i < Math.floor(b);
+      const isFlashing = i === this._apFlashSlot && performance.now() - (this._apFlashStart || 0) < 220;
+      ctx.fillStyle = filled ? (isFlashing ? '#aaddff' : '#44aaff') : '#1a2a44';
       ctx.fillRect(sx, y, segW, segH);
+      if (isFlashing) {
+        ctx.fillStyle = 'rgba(180,230,255,0.45)';
+        ctx.fillRect(sx, y, segW, segH);
+      }
       ctx.strokeStyle = '#223355';
       ctx.lineWidth = 1;
       ctx.strokeRect(sx, y, segW, segH);

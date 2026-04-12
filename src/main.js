@@ -53,6 +53,59 @@ canvas.height = window.innerHeight;
 window.CANVAS_W = canvas.width;
 window.CANVAS_H = canvas.height;
 
+// Hide native cursor globally — DOM cursor overlay replaces it
+(function _initDomCursor() {
+  const style = document.createElement('style');
+  style.textContent = '*, *::before, *::after { cursor: none !important; }';
+  document.head.appendChild(style);
+
+  const _cursorDiv = document.createElement('div');
+  _cursorDiv.id = 'game-cursor';
+  Object.assign(_cursorDiv.style, {
+    position: 'fixed', left: '0', top: '0',
+    pointerEvents: 'none', zIndex: '9999',
+    width: '28px', height: '28px',
+    willChange: 'transform',
+  });
+  // Build crosshair from thin rectangles forming a "+" with gap
+  const _makeBar = (w, h, tx, ty) => {
+    const b = document.createElement('div');
+    Object.assign(b.style, {
+      position: 'absolute', left: '50%', top: '50%',
+      width: w + 'px', height: h + 'px',
+      background: '#ffffff', opacity: '0.88', borderRadius: '1px',
+      transform: `translate(-50%, -50%) translate(${tx}px, ${ty}px)`,
+    });
+    return b;
+  };
+  _cursorDiv.appendChild(_makeBar(9, 1.5, -8.5, 0));
+  _cursorDiv.appendChild(_makeBar(9, 1.5, 8.5, 0));
+  _cursorDiv.appendChild(_makeBar(1.5, 9, 0, -8.5));
+  _cursorDiv.appendChild(_makeBar(1.5, 9, 0, 8.5));
+  const _dot = document.createElement('div');
+  Object.assign(_dot.style, {
+    position: 'absolute', left: '50%', top: '50%',
+    width: '3px', height: '3px', borderRadius: '50%',
+    background: '#ffffff', opacity: '0.88',
+    transform: 'translate(-50%, -50%)',
+  });
+  _cursorDiv.appendChild(_dot);
+  document.body.appendChild(_cursorDiv);
+
+  window.addEventListener('mousemove', e => {
+    _cursorDiv.style.transform = `translate(${e.clientX - 14}px, ${e.clientY - 14}px)`;
+  });
+
+  // Expose color setter on the module scope
+  window._gameCursorDiv = _cursorDiv;
+})();
+
+function setCursorColor(hex) {
+  const el = window._gameCursorDiv;
+  if (!el) return;
+  for (let i = 0; i < el.children.length; i++) el.children[i].style.background = hex;
+}
+
 const input = new InputManager(canvas);
 const renderer = new Renderer(canvas);
 const tempo = new TempoSystem();
@@ -134,6 +187,32 @@ let cosmeticPanelTab = 'bodyColor';
 // Zone transition first-time tooltip
 let seenZones = new Set();
 let zoneTooltip = null; // { text, color, timer }
+
+// ── Visual systems ────────────────────────────────────────────────
+// Menu/charSelect ambient floating particles (small pool, reused)
+const MENU_PARTICLE_COUNT = 28;
+const _menuParts = Array.from({ length: MENU_PARTICLE_COUNT }, (_, i) => ({
+  x: 0, y: 0, vy: 0, vx: 0, r: 0, a: 0, col: '#fff'
+}));
+let _menuPartsInit = false;
+
+// Fade-in from black on state enter
+let _fadeAlpha = 1.0;  // start fully black, fade in
+let _fadeDir   = -1;   // -1 = fading to transparent
+
+// Draft card reveal animation
+let _draftRevealTimer = 0;
+let _draftRevealMax   = 0;
+
+// Combat start flash (expanding ring)
+let _combatStartFlash = 0;
+
+// Ambient battle motes (slow floating particles)
+const AMBIENT_COUNT = 14;
+const _ambientParts = Array.from({ length: AMBIENT_COUNT }, () => ({
+  x: 0, y: 0, vx: 0, vy: 0, r: 0, a: 0, life: 0
+}));
+let _ambientInit = false;
 
 // IDEA-12: Brutal difficulty — per-floor curse
 let currentFloorCurse = null; // 'apRegen' | 'speed' | 'tempoCost' | null
@@ -241,6 +320,7 @@ events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
   particles.spawnKillFlash('#ff2222');
   events.emit('HIT_STOP', 0.08);
   events.emit('SCREEN_SHAKE', { duration: 0.2, intensity: 0.4 });
+  renderer.triggerCA();
   if (!player.alive) {
     // Wraith Undying: first death per room revives at 1 HP + crash
     if (passives?.undying && !player._undyingUsed) {
@@ -269,6 +349,8 @@ events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
 
 events.on('REQUEST_PLAYER_POS_CRASH', ({ radius, dmg, accidental }) => {
   events.emit('CRASH_ATTACK', { x: player.x, y: player.y, radius, dmg });
+  renderer.triggerCA();
+  ui.triggerTempoCrash();
   if (!accidental) runStats.manualCrashes++;
   events.emit('CRASH_TEXT', { dmg });
   // Berserker Heart (BUG-04): each crash adds +1 combo stack
@@ -468,6 +550,8 @@ events.on('COLD_CRASH', ({ radius, freezeDur }) => {
   particles.spawnColdCrashFlash();
   particles.spawnRing && particles.spawnRing(player.x, player.y, radius, '#66ccff');
   particles.spawnDamageNumber(player.x, player.y - 40, 'COLD CRASH!');
+  renderer.triggerCA();
+  ui.triggerTempoCrash();
 });
 
 events.on('COMBO_DISPLAY', ({ count, x, y }) => {
@@ -854,8 +938,15 @@ function handleCombatClear() {
   currentCombatNode = null;
 
   if (gameState === 'playing') {
-    if (generateDraft()) gameState = 'draft';
-    else gameState = 'map';
+    if (generateDraft()) {
+      gameState = 'draft';
+      _draftRevealTimer = 0;
+      _draftRevealMax = draftChoices.length;
+      _fadeAlpha = 0.6; _fadeDir = -1;
+    } else {
+      gameState = 'map';
+      _fadeAlpha = 0.6; _fadeDir = -1;
+    }
   }
 }
 
@@ -1459,6 +1550,7 @@ function update(logicDt, realDt) {
       const idx = getDraftClickIndex(input.mouse.x, input.mouse.y);
       if (idx >= 0) pickDraft(idx);
     }
+    _draftRevealTimer += realDt;
     input.clearFrame();
     return;
   }
@@ -1469,6 +1561,9 @@ function update(logicDt, realDt) {
       console.log(`[Prep] Hand: [${deckManager.hand.join(', ')}]`);
       particles.spawnRoomEntryFlash();
       gameState = 'playing';
+      _combatStartFlash = 0.5;
+      _fadeAlpha = 0.5; _fadeDir = -1; // brief fade-in
+      _ambientInit = false; // reset ambient particles for new room
     }
     if (input.consumeClick()) ui.handlePrepClick(input.mouse.x, input.mouse.y);
     input.clearFrame();
@@ -1923,11 +2018,16 @@ function update(logicDt, realDt) {
 
   particles.update(logicDt);
   renderer.updateShake(realDt);
+  renderer.updateCA(realDt);
   // Tick zone tooltip
   if (zoneTooltip && zoneTooltip.timer > 0) {
     zoneTooltip.timer -= logicDt;
     if (zoneTooltip.timer <= 0) zoneTooltip = null;
   }
+  // Tick draft reveal timer
+  // Draft reveal timer now incremented inside the draft handler above (before its early return)
+  // Tick combat start flash
+  if (_combatStartFlash > 0) _combatStartFlash -= realDt;
   input.clearFrame();
 }
 
@@ -2144,15 +2244,68 @@ function render() {
     ctx.fillStyle = bgGrad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Title glow
-    ctx.save();
-    ctx.shadowColor = '#4466ff';
-    ctx.shadowBlur = 40;
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 62px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('ROGUE HERO', canvas.width / 2, 112);
-    ctx.restore();
+    // ── Ambient menu particles ──
+    {
+      const _mdt = 1 / 60;
+      const _mcols = ['#4466ff', '#aa44ff', '#44aaff', '#ffffff', '#ff44aa', '#44ffaa'];
+      if (!_menuPartsInit) {
+        _menuPartsInit = true;
+        for (let _mi = 0; _mi < _menuParts.length; _mi++) {
+          const p = _menuParts[_mi];
+          p.x = Math.random() * canvas.width;
+          p.y = Math.random() * canvas.height;
+          p.vx = (Math.random() - 0.5) * 16;
+          p.vy = -7 - Math.random() * 16;
+          p.r = 0.8 + Math.random() * 1.8;
+          p.a = 0.12 + Math.random() * 0.4;
+          p.col = _mcols[Math.floor(Math.random() * _mcols.length)];
+        }
+      }
+      ctx.save();
+      for (const p of _menuParts) {
+        p.x += p.vx * _mdt;
+        p.y += p.vy * _mdt;
+        if (p.y < -10) { p.y = canvas.height + 5; p.x = Math.random() * canvas.width; }
+        if (p.x < -10) p.x = canvas.width + 5;
+        if (p.x > canvas.width + 10) p.x = -5;
+        ctx.globalAlpha = p.a;
+        ctx.fillStyle = p.col;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // Faint living silhouette behind menu content
+    {
+      const _tSil = performance.now() / 1000;
+      const silX = canvas.width / 2, silY = canvas.height * 0.58;
+      const silPulse = 0.04 + Math.abs(Math.sin(_tSil * 0.7)) * 0.025;
+      ctx.save();
+      ctx.globalAlpha = silPulse;
+      ctx.fillStyle = '#5577ff';
+      drawPlayerShape(ctx, silX, silY, 100, 'circle');
+      ctx.fill();
+      ctx.restore();
+      ctx.save();
+      ctx.globalAlpha = silPulse * 1.4;
+      drawPlayerAura(ctx, silX, silY, 100, 'faint_blue', _tSil, 45);
+      ctx.restore();
+    }
+
+    // Title glow — prismatic shimmer
+    {
+      const _tTitle = performance.now() / 1000;
+      ctx.save();
+      ctx.shadowColor = getPrismaticColor(_tTitle, 100, 55);
+      ctx.shadowBlur = 44;
+      ctx.fillStyle = getPrismaticColor(_tTitle, 75, 82);
+      ctx.font = 'bold 62px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('ROGUE HERO', canvas.width / 2, 112);
+      ctx.restore();
+    }
 
     // Subtitle bar
     ctx.fillStyle = 'rgba(68,170,255,0.12)';
@@ -2395,8 +2548,33 @@ function render() {
       ctx.fill();
 
       ctx.shadowColor = 'transparent';
-      ctx.fillStyle = unlocked ? ch.color : '#333';
-      ctx.fillRect(x, startY, 5, CARD_H);
+
+      // Hover glow ring (outside card border)
+      const _csMx = input.mouse.x, _csMy = input.mouse.y;
+      const _csHovered = _csMx >= x && _csMx <= x + CARD_W && _csMy >= startY && _csMy <= startY + CARD_H;
+      if (_csHovered && unlocked) {
+        const _csGT = performance.now() / 1000;
+        ctx.save();
+        ctx.shadowColor = ch.color;
+        ctx.shadowBlur = 22 + Math.sin(_csGT * 3) * 7;
+        ctx.strokeStyle = ch.color;
+        ctx.globalAlpha = 0.28 + 0.12 * Math.abs(Math.sin(_csGT * 2.5));
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.roundRect(x - 4, startY - 4, CARD_W + 8, CARD_H + 8, 20);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // Animated color stripe (pulsing brightness)
+      {
+        const _csT = performance.now() / 1000;
+        const _csPulse = 0.55 + 0.45 * Math.abs(Math.sin(_csT * 1.6 + i * 1.1));
+        ctx.globalAlpha = _csPulse;
+        ctx.fillStyle = unlocked ? ch.color : '#333';
+        ctx.fillRect(x, startY, 5, CARD_H);
+        ctx.globalAlpha = 1;
+      }
 
       ctx.strokeStyle = isSelected ? ch.color : (unlocked ? '#444' : '#222');
       ctx.lineWidth = isSelected ? 4 : 2;
@@ -2416,6 +2594,22 @@ function render() {
         ctx.font = '13px monospace';
         const cond = ch.unlockConditionText || 'Complete a run to unlock';
         ui._wrapText(ctx, cond, x + 15, startY + CARD_H / 2 + 28, CARD_W - 30, 15);
+        // Diagonal shimmer sweep over locked card
+        {
+          const _lsT = (performance.now() / 1000 * 0.45 + i * 0.4) % 1;
+          ctx.save();
+          ctx.beginPath();
+          ctx.roundRect(x, startY, CARD_W, CARD_H, 16);
+          ctx.clip();
+          const _lsX = x - 40 + (CARD_W + 80) * _lsT;
+          const _lsGrad = ctx.createLinearGradient(_lsX - 30, startY, _lsX + 30, startY + CARD_H);
+          _lsGrad.addColorStop(0, 'rgba(255,255,255,0)');
+          _lsGrad.addColorStop(0.5, 'rgba(255,255,255,0.07)');
+          _lsGrad.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = _lsGrad;
+          ctx.fillRect(x, startY, CARD_W, CARD_H);
+          ctx.restore();
+        }
       } else {
         const charStats = meta.getCharStats(ch.id);
         const masteryLevel = meta.getMasteryLevel(ch.id);
@@ -2585,7 +2779,7 @@ function render() {
 
   // ── MAP ──
   if (gameState === 'map') {
-    runManager.drawMap(renderer.ctx, canvas.width, canvas.height);
+    runManager.drawMap(renderer.ctx, canvas.width, canvas.height, input.mouse.x, input.mouse.y);
     const ctx = renderer.ctx;
     const ch = Characters[selectedCharId];
     // Hero info bar — drawn inside the map header area
@@ -2766,7 +2960,7 @@ function render() {
 
   // ── PAUSED FROM MAP: show map, not the battle room ──
   if (gameState === 'paused' && prevStateBeforePause === 'map') {
-    runManager.drawMap(renderer.ctx, canvas.width, canvas.height);
+    runManager.drawMap(renderer.ctx, canvas.width, canvas.height, input.mouse.x, input.mouse.y);
     const _ctx = renderer.ctx;
     const _ch = Characters[selectedCharId];
     _ctx.fillStyle = _ch ? _ch.color : '#aaa';
@@ -2787,6 +2981,49 @@ function render() {
   const now = performance.now();
   renderer.beginShakeScope();
   room.draw(renderer.ctx);
+
+  // (torch-light removed — per-frame createRadialGradient was expensive and unwanted)
+
+  // Ambient floating motes (slow background life)
+  if (!_ambientInit) {
+    _ambientInit = true;
+    for (const p of _ambientParts) {
+      p.x = room.FLOOR_X1 + Math.random() * (room.FLOOR_X2 - room.FLOOR_X1);
+      p.y = room.FLOOR_Y1 + Math.random() * (room.FLOOR_Y2 - room.FLOOR_Y1);
+      p.vx = (Math.random() - 0.5) * 18;
+      p.vy = -6 - Math.random() * 18;
+      p.r  = 1 + Math.random() * 1.5;
+      p.a  = 0.08 + Math.random() * 0.18;
+      p.life = Math.random();
+    }
+  }
+  {
+    const _dt2 = Math.min(0.05, 1 / 60);
+    const _ctx = renderer.ctx;
+    _ctx.save();
+    for (const p of _ambientParts) {
+      p.life += _dt2 * 0.15;
+      if (p.life >= 1) {
+        p.x = room.FLOOR_X1 + Math.random() * (room.FLOOR_X2 - room.FLOOR_X1);
+        p.y = room.FLOOR_Y2 - 20;
+        p.vx = (Math.random() - 0.5) * 16;
+        p.vy = -8 - Math.random() * 16;
+        p.r  = 1 + Math.random() * 1.5;
+        p.a  = 0.08 + Math.random() * 0.16;
+        p.life = 0;
+      }
+      p.x += p.vx * _dt2;
+      p.y += p.vy * _dt2;
+      _ctx.beginPath();
+      _ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      _ctx.fillStyle = '#ffffff';
+      _ctx.globalAlpha = p.a * Math.sin(p.life * Math.PI);
+      _ctx.fill();
+    }
+    _ctx.globalAlpha = 1;
+    _ctx.restore();
+  }
+
   // Draw floor-layer world objects (traps, sigils, ground zones, beams)
   _drawWorldObjects(renderer.ctx, now);
   for (const e of enemies) {
@@ -2898,6 +3135,22 @@ function render() {
     }
     renderer.endShakeScope();
 
+    // Screen vignette (cached, draws over world, below HUD)
+    renderer.drawVignette();
+
+    // Combat-start expanding ring flash
+    if (_combatStartFlash > 0) {
+      const _p = 1 - _combatStartFlash / 0.5;
+      const _ctx = renderer.ctx;
+      _ctx.save();
+      _ctx.beginPath();
+      _ctx.arc(canvas.width / 2, canvas.height / 2, 60 + _p * 340, 0, Math.PI * 2);
+      _ctx.strokeStyle = `rgba(255,80,80,${(1 - _p) * 0.55})`;
+      _ctx.lineWidth = 4 - _p * 3;
+      _ctx.stroke();
+      _ctx.restore();
+    }
+
     // Zone transition tooltip (first-time only)
     if (zoneTooltip && zoneTooltip.timer > 0) {
       const alpha = Math.min(1, zoneTooltip.timer, 3.5 - zoneTooltip.timer + 0.5);
@@ -2933,6 +3186,23 @@ function render() {
     ui.setMouse(input.mouse.x, input.mouse.y);
     ui.drawDiscardScreen(renderer.ctx, discardPendingCardId);
   }
+
+  // ── POST-FRAME PASSES ─────────────────────────────────────────
+  // (bloom removed — ctx.filter blur was CPU-rasterized, costing 4-8ms/frame)
+  // Chromatic aberration edge flash (all game states)
+  renderer.drawCAFlash();
+  // Scanlines overlay (subtle retro texture on all screens)
+  renderer.drawScanlines();
+  // Fade-to/from-black overlay
+  if (_fadeAlpha > 0) {
+    renderer.ctx.fillStyle = `rgba(0,0,0,${_fadeAlpha})`;
+    renderer.ctx.fillRect(0, 0, canvas.width, canvas.height);
+    if (_fadeDir < 0) _fadeAlpha = Math.max(0, _fadeAlpha - 0.04);
+    else if (_fadeDir > 0) _fadeAlpha = Math.min(1, _fadeAlpha + 0.04);
+  }
+  // Update DOM cursor color each frame
+  const tempoColor = (gameState === 'playing' || gameState === 'paused') ? tempo.stateColor() : '#aaaacc';
+  setCursorColor(tempoColor);
 }
 
 function drawDraftScreen() {
@@ -2971,10 +3241,18 @@ function drawDraftScreen() {
     const def = CardDefinitions[cardId];
     if (!def) continue;
 
+    // Staggered slide-in animation
+    const _slideDelay = i * 0.09;
+    const _slideT = Math.max(0, _draftRevealTimer - _slideDelay);
+    const _slideProg = Math.min(1, _slideT / 0.38);
+    const _slideOffY = (1 - _easeOutBack(_slideProg)) * -80;
+
     const rarCol = def.rarity === 'rare' ? '#bb44ff' : (def.rarity === 'uncommon' ? '#44dd88' : '#888899');
     const rarLabel = def.rarity ? def.rarity.toUpperCase() : 'COMMON';
 
     ctx.save();
+    ctx.translate(0, _slideOffY);
+    ctx.globalAlpha = Math.min(1, _slideProg * 1.5);
     ctx.shadowColor = def.rarity === 'rare' ? 'rgba(187,68,255,0.4)' : (def.rarity === 'uncommon' ? 'rgba(68,221,136,0.3)' : 'rgba(0,0,0,0.6)');
     ctx.shadowBlur = def.rarity === 'rare' ? 30 : 18;
     ctx.shadowOffsetY = 8;
@@ -2999,6 +3277,24 @@ function drawDraftScreen() {
     ctx.beginPath();
     ctx.roundRect(x, startY, CARD_W, CARD_H, 14);
     ctx.stroke();
+
+    // Rarity shimmer — diagonal highlight sweep for rare/uncommon
+    if (def.rarity === 'rare' || def.rarity === 'uncommon') {
+      const _rsT = (performance.now() / 1000 * 0.6 + i * 0.55) % 1;
+      const _rsY = startY - 20 + (CARD_H + 40) * _rsT;
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(x, startY, CARD_W, CARD_H, 14);
+      ctx.clip();
+      const _rsGrad = ctx.createLinearGradient(x, _rsY, x + CARD_W, _rsY + CARD_H * 0.25);
+      _rsGrad.addColorStop(0, 'rgba(255,255,255,0)');
+      _rsGrad.addColorStop(0.4, `rgba(255,255,255,${def.rarity === 'rare' ? 0.11 : 0.07})`);
+      _rsGrad.addColorStop(0.6, `rgba(255,255,255,${def.rarity === 'rare' ? 0.13 : 0.09})`);
+      _rsGrad.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = _rsGrad;
+      ctx.fillRect(x, startY, CARD_W, CARD_H);
+      ctx.restore();
+    }
 
     // Key hint + rarity badge
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
@@ -3064,7 +3360,10 @@ function drawDraftScreen() {
     ctx.fillText('CLICK TO PICK', x + CARD_W / 2, startY + CARD_H - 16);
 
     ctx.restore();
-    draftBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, idx: i });
+    // Only register click target once card is sufficiently visible
+    if (_slideProg > 0.5) {
+      draftBoxes.push({ x, y: startY + _slideOffY, w: CARD_W, h: CARD_H, idx: i });
+    }
   }
 }
 function _easeOutBounce(t) {
@@ -3114,22 +3413,54 @@ function renderLootBoxOpen(ctx, t) {
     // Label
     ctx.fillStyle = '#ffffff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
     ctx.fillText(BOX_TIERS[lb.boxTier]?.label || 'Box', 0, 6);
-    // Crack effect
+    // Jagged fracture cracks
     if (el >= 0.5) {
-      const crackProgress = (el-0.5)/0.3;
+      const crackProgress = Math.min(1, (el-0.5)/0.3);
       ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
-      ctx.globalAlpha = crackProgress;
-      for (let ci = 0; ci < 6; ci++) {
-        const angle = (ci/6)*Math.PI*2;
-        const len = 20+crackProgress*40;
+      ctx.globalAlpha = Math.min(1, crackProgress * 1.5);
+      // 4 irregular fracture lines radiating from center
+      const fractures = [
+        [[0,0],[7,-10],[14,-8],[BW*0.48,-BH*0.44]],
+        [[0,0],[-6,-12],[-11,-5],[-BW*0.44,-BH*0.46]],
+        [[0,0],[9,7],[5,18],[BW*0.46,BH*0.45]],
+        [[0,0],[-8,9],[-BW*0.42,BH*0.38]],
+      ];
+      for (const frac of fractures) {
+        const pts = Math.max(2, Math.ceil(frac.length * crackProgress));
         ctx.beginPath();
-        ctx.moveTo(0,0);
-        ctx.lineTo(Math.cos(angle)*len, Math.sin(angle)*len);
+        ctx.moveTo(frac[0][0], frac[0][1]);
+        for (let fi = 1; fi < pts; fi++) {
+          const fLerp = Math.min(1, crackProgress * frac.length - fi + 1);
+          const px = frac[fi-1][0] + (frac[fi][0]-frac[fi-1][0]) * fLerp;
+          const py = frac[fi-1][1] + (frac[fi][1]-frac[fi-1][1]) * fLerp;
+          ctx.lineTo(px, py);
+        }
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+  }
+
+  // ── Phase: shard burst (right as box breaks) ──
+  if (el >= 0.76 && el < 1.2 && !(isSL && el >= 0.8)) {
+    const shardAge = el - 0.76;
+    const tierCol = BOX_TIERS[lb.boxTier]?.color || '#888888';
+    const numShards = 10;
+    for (let s = 0; s < numShards; s++) {
+      const ang = (s / numShards) * Math.PI * 2 + s * 0.27;
+      const speed = 55 + (s % 3) * 38;
+      const sx = Math.cos(ang) * speed * shardAge;
+      const sy = Math.sin(ang) * speed * shardAge + shardAge * shardAge * 50;
+      const shardA = Math.max(0, 1 - shardAge / 0.38);
+      ctx.save();
+      ctx.translate(cx + sx, cy + sy);
+      ctx.rotate(ang + shardAge * 4);
+      ctx.globalAlpha = shardA * 0.85;
+      ctx.fillStyle = tierCol;
+      ctx.fillRect(-5, -2, 10, 4);
+      ctx.restore();
+    }
   }
 
   // ── Phase: SL blackout ──
@@ -3244,6 +3575,25 @@ function renderLootBoxOpen(ctx, t) {
       const shimmer = (Math.sin(t*4)+1)*0.5;
       ctx.fillStyle = `rgba(255,220,80,${0.15+shimmer*0.15})`;
       ctx.fillRect(cardX, cardY, CW, CH);
+    }
+
+    // Duplicate ribbon — diagonal corner tag
+    if (result.isDuplicate) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.roundRect(cardX, cardY, CW, CH, 12);
+      ctx.clip();
+      ctx.save();
+      ctx.translate(cardX + CW - 2, cardY + 2);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillStyle = 'rgba(130,130,130,0.75)';
+      ctx.fillRect(-55, -12, 110, 24);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('DUPLICATE', 0, 4);
+      ctx.restore();
+      ctx.restore();
     }
 
     // Dismiss prompt

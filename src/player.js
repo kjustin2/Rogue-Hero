@@ -68,6 +68,8 @@ export class Player extends Entity {
       if (this.dodgeTimer <= 0) {
         this.dodging = false;
         this.perfectDodgeWindow = 0;
+        // Landing impact ring
+        this._landingRing = { t: performance.now() / 1000, x: this.x, y: this.y };
       }
     }
 
@@ -195,13 +197,48 @@ export class Player extends Entity {
     const eq = window._equippedCosmetics;
     const t = performance.now() / 1000;
 
-    // Dashing trail ghost
+    // Landing impact ring
+    if (this._landingRing) {
+      const age = t - this._landingRing.t;
+      const dur = 0.32;
+      if (age < dur) {
+        const p = age / dur;
+        ctx.beginPath();
+        ctx.arc(this._landingRing.x, this._landingRing.y, 14 + p * 30, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(100,200,255,${(1 - p) * 0.6})`;
+        ctx.lineWidth = 2 - p;
+        ctx.stroke();
+      }
+    }
+
+    // Multi-ghost dodge afterimage trail (3 staggered ghosts)
     if (this.dodging) {
-      const trailCol = eq?.trailDef?.value || 'rgba(51,170,255,0.4)';
+      const trailCol = eq?.trailDef?.value || 'rgba(51,170,255,0.5)';
+      for (let gi = 3; gi >= 1; gi--) {
+        const off = gi * 0.055;
+        ctx.beginPath();
+        ctx.arc(this.x - this.vx * off, this.y - this.vy * off, this.r - gi * 0.8, 0, Math.PI * 2);
+        ctx.globalAlpha = 0.38 - gi * 0.09;
+        ctx.fillStyle = trailCol;
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Tempo-zone ambient aura ring
+    {
+      const tempoVal = tempo ? tempo.value : 50;
+      const zoneColor = tempo ? tempo.stateColor() : '#ffffff';
+      const pulseFreq = tempoVal >= 90 ? 14 : tempoVal >= 70 ? 6 : 3;
+      const jitter    = tempoVal >= 90 ? Math.sin(t * 28) * 2.5 : 0;
+      const auraA     = 0.15 + Math.sin(t * pulseFreq) * 0.08;
       ctx.beginPath();
-      ctx.arc(this.x - this.vx * 0.05, this.y - this.vy * 0.05, this.r - 2, 0, Math.PI*2);
-      ctx.fillStyle = trailCol;
-      ctx.fill();
+      ctx.arc(this.x, this.y, this.r + 7 + jitter, 0, Math.PI * 2);
+      ctx.strokeStyle = zoneColor;
+      ctx.globalAlpha = auraA;
+      ctx.lineWidth   = 2;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
     }
 
     // Drop shadow

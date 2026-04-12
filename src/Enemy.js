@@ -192,6 +192,30 @@ export class Enemy extends Entity {
       ctx.font = 'bold 9px monospace';
       ctx.fillText(modTag, this.x, this.y - this.r - 32);
     }
+
+    // Named-elite persistent aura (Juggernaut, Stalker, Corruptor, etc.)
+    if (this.isElite) {
+      const pulse = 0.35 + Math.sin(now * 0.0035) * 0.2;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, drawR + 10, 0, Math.PI * 2);
+      ctx.strokeStyle = this._eliteAuraColor || '#ff8844';
+      ctx.globalAlpha = pulse;
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Low-HP danger indicator (<20% health)
+    if (this.alive && this.hp / this.maxHp < 0.2) {
+      const flicker = Math.sin(now * 0.018) > 0;
+      if (flicker) {
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, drawR + 4, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,30,30,0.75)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+    }
   }
 
   // Draw intent icon above enemy when telegraphing
@@ -1867,6 +1891,7 @@ export class BossApex extends Enemy {
 export class Juggernaut extends Enemy {
   constructor(x, y) {
     super(x, y, 28, 350, 'juggernaut');
+    this.isElite = true; this._eliteAuraColor = '#aa44ff';
     this.telegraphDuration = 1.2;
     this.chargeCooldown = 5.0;
     this.chargeVx = 0;
@@ -2013,6 +2038,7 @@ export class Juggernaut extends Enemy {
 export class Stalker extends Enemy {
   constructor(x, y) {
     super(x, y, 12, 60, 'stalker');
+    this.isElite = true; this._eliteAuraColor = '#ff4488';
     this.telegraphDuration = 0.4;
     this.opacity = 0.15;
     this.isVisible = false;
@@ -2211,6 +2237,7 @@ export class Splitter extends Enemy {
 export class Corruptor extends Enemy {
   constructor(x, y) {
     super(x, y, 14, 70, 'corruptor');
+    this.isElite = true; this._eliteAuraColor = '#00ddaa';
     this.telegraphDuration = 1.0;
     this.auraRadius = 150;
     this.shieldActive = true;
@@ -2301,6 +2328,7 @@ export class Corruptor extends Enemy {
 export class BerserkerEnemy extends Enemy {
   constructor(x, y) {
     super(x, y, 18, 100, 'berserker_enemy');
+    this.isElite = true; this._eliteAuraColor = '#ff2200';
     this.telegraphDuration = 1.5;
     this.isBerserk = false;
     this.roarTimer = 0;
@@ -2530,6 +2558,7 @@ export class Disruptor extends Enemy {
 export class Timekeeper extends Enemy {
   constructor(x, y) {
     super(x, y, 15, 80, 'timekeeper');
+    this.isElite = true; this._eliteAuraColor = '#44ddff';
     this.telegraphDuration = 0.5;
     this.auraRadius = 160;
     this.rotAngle = 0;

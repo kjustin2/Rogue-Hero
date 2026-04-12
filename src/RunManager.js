@@ -133,7 +133,7 @@ export class RunManager {
     return null;
   }
 
-  drawMap(ctx, width, height) {
+  drawMap(ctx, width, height, mx, my) {
     // Background — darker toward the edges, act-themed
     const floorThemes = [
       { bg: '#0d0d18', col: '#44aaff', name: '' },
@@ -241,8 +241,28 @@ export class RunManager {
       }
     }
 
+    // Traveling light dot along active path connections
+    for (const nextId of validTargets) {
+      const nn = this.nodeMap[nextId];
+      if (!currNode || !nn) continue;
+      const cy0 = START_Y - (currNode.layer * gapY);
+      const cx0 = (width * 0.25) + currNode.xPos * (width * 0.5);
+      const ny0 = START_Y - (nn.layer * gapY);
+      const nx0 = (width * 0.25) + nn.xPos * (width * 0.5);
+      const dotP = (t * 0.55) % 1;
+      const dotX = cx0 + (nx0 - cx0) * dotP;
+      const dotY = cy0 + (ny0 - cy0) * dotP;
+      ctx.beginPath();
+      ctx.arc(dotX, dotY, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#ffffff';
+      ctx.globalAlpha = 0.7;
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
     // Second pass: nodes (PERF-03: default font set once, override only for boss)
     ctx.font = 'bold 16px monospace';
+    let _tooltipNode = null, _tooltipX = 0, _tooltipY = 0;
     for (let i = 0; i < this.maxLayers; i++) {
       for (const node of this.layers[i]) {
         const cy = START_Y - (node.layer * gapY);
@@ -251,18 +271,29 @@ export class RunManager {
 
         const isCurrent = node.id === this.currentNodeId;
         const isValidNext = validTargets.includes(node.id);
+        const isFuture = node.layer > (currNode?.layer || 0) && !isValidNext;
         const isPast = node.layer < (currNode?.layer || 0);
         const isBoss = node.type === 'boss';
+        // Fog of war: only immediate next choices are fully revealed
+        const isHidden = isFuture && node.layer > (currNode?.layer || 0) + 1;
 
         let rad = isBoss ? 26 : (node.type === 'elite' ? 18 : 15);
         this.clickSpheres.push({ x: cx, y: cy, r: rad + 12, id: node.id });
+
+        // Tooltip tracking (mouse hover over valid next node)
+        if (isValidNext && mx !== undefined && my !== undefined) {
+          const dx = mx - cx, dy = my - cy;
+          if (dx * dx + dy * dy < (rad + 20) * (rad + 20)) {
+            _tooltipNode = node; _tooltipX = cx; _tooltipY = cy - rad - 12;
+          }
+        }
 
         // Glow for valid next nodes
         if (isValidNext) {
           const glowR = rad + 10 + Math.sin(t * 3) * 4;
           ctx.save();
           ctx.shadowColor = cfg.col;
-          ctx.shadowBlur = 20;
+          ctx.shadowBlur = 22;
           ctx.strokeStyle = cfg.col + 'aa';
           ctx.lineWidth = 2;
           ctx.beginPath();
@@ -271,9 +302,11 @@ export class RunManager {
           ctx.restore();
         }
 
-        // Node body
+        // Node body — hidden nodes show as dim ? circles
         ctx.beginPath();
-        if (node.type === 'event') {
+        if (isHidden) {
+          ctx.arc(cx, cy, rad * 0.8, 0, Math.PI * 2);
+        } else if (node.type === 'event') {
           ctx.moveTo(cx, cy - rad);
           ctx.lineTo(cx + rad, cy);
           ctx.lineTo(cx, cy + rad);
@@ -285,7 +318,9 @@ export class RunManager {
           ctx.arc(cx, cy, rad, 0, Math.PI * 2);
         }
 
-        if (isCurrent) {
+        if (isHidden) {
+          ctx.fillStyle = '#111122';
+        } else if (isCurrent) {
           ctx.fillStyle = '#ffffff';
         } else if (isValidNext) {
           ctx.fillStyle = cfg.col;
@@ -296,25 +331,71 @@ export class RunManager {
         }
         ctx.fill();
 
-        ctx.strokeStyle = isCurrent ? '#ffaa00' : (isValidNext ? '#ffffff' : (isPast ? '#222' : '#334'));
+        ctx.strokeStyle = isCurrent ? '#ffaa00' : (isValidNext ? '#ffffff' : (isPast ? '#222' : (isHidden ? '#1a1a2a' : '#334')));
         ctx.lineWidth = isCurrent ? 3 : (isValidNext ? 2 : 1);
         ctx.stroke();
 
-        // Icon text (PERF-03: only set font for boss nodes, others use the default set above)
-        ctx.fillStyle = isCurrent ? '#000' : (isValidNext ? '#fff' : (isPast ? '#333' : '#222'));
-        if (isBoss) ctx.font = 'bold 18px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(cfg.icon, cx, cy + (isBoss ? 6 : 5));
-        if (isBoss) ctx.font = 'bold 16px monospace'; // restore
-
-        // Label below node
-        if (cfg.label) {
-          ctx.fillStyle = isCurrent ? '#ffaa00' : (isValidNext ? cfg.col : (isPast ? '#444' : '#555566'));
+        // Icon / label
+        if (isHidden) {
+          ctx.fillStyle = '#334';
+          ctx.font = 'bold 14px monospace';
+          ctx.textAlign = 'center';
+          ctx.fillText('?', cx, cy + 5);
+          ctx.font = 'bold 16px monospace';
+        } else {
+          // Custom canvas icon instead of emoji
+          ctx.fillStyle = isCurrent ? '#000' : (isValidNext ? '#fff' : (isPast ? '#333' : '#222'));
           if (isBoss) ctx.font = 'bold 18px monospace';
-          ctx.fillText(cfg.label, cx, cy + rad + 20);
-          if (isBoss) ctx.font = 'bold 16px monospace'; // restore default
+          ctx.textAlign = 'center';
+          ctx.fillText(cfg.icon, cx, cy + (isBoss ? 6 : 5));
+          if (isBoss) ctx.font = 'bold 16px monospace';
+
+          if (cfg.label) {
+            ctx.fillStyle = isCurrent ? '#ffaa00' : (isValidNext ? cfg.col : (isPast ? '#444' : '#555566'));
+            if (isBoss) ctx.font = 'bold 18px monospace';
+            ctx.fillText(cfg.label, cx, cy + rad + 20);
+            if (isBoss) ctx.font = 'bold 16px monospace';
+          }
+
+          // Visited checkmark for cleared past nodes
+          if (isPast && node.type !== 'start') {
+            ctx.fillStyle = 'rgba(100,255,150,0.5)';
+            ctx.font = 'bold 11px monospace';
+            ctx.fillText('✓', cx + rad - 2, cy - rad + 4);
+            ctx.font = 'bold 16px monospace';
+          }
         }
       }
+    }
+
+    // Node hover tooltip
+    if (_tooltipNode) {
+      const tipDesc = {
+        fight:  'Combat room — 2-4 enemies',
+        elite:  'Elite room — tougher enemies, better rewards',
+        rest:   'Rest node — heal HP or burn a card',
+        boss:   'BOSS — powerful guardian, unique reward',
+        event:  'Event — unknown encounter or choice',
+        shop:   'Shop — buy cards and relics',
+      };
+      const tipText = tipDesc[_tooltipNode.type] || _tooltipNode.type;
+      const ttW = Math.min(300, tipText.length * 8 + 24);
+      const ttX = Math.max(8, Math.min(width - ttW - 8, _tooltipX - ttW / 2));
+      const ttY2 = Math.max(90, _tooltipY - 36);
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.88)';
+      ctx.beginPath();
+      ctx.roundRect(ttX, ttY2, ttW, 28, 6);
+      ctx.fill();
+      const cfg2 = nodeConfig[_tooltipNode.type] || nodeConfig.fight;
+      ctx.strokeStyle = cfg2.col;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.fillStyle = cfg2.col;
+      ctx.font = 'bold 12px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(tipText, ttX + ttW / 2, ttY2 + 18);
+      ctx.restore();
     }
 
     // IDEA-11: Boss proximity warning
