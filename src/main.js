@@ -817,7 +817,7 @@ function pickDraft(idx) {
     // After draft — offer item reward every other room, upgrade every 3 rooms
     if (roomsCleared % 2 === 0) {
       itemChoices = itemManager.generateChoices(3, selectedCharId);
-      if (itemChoices.length > 0) { gameState = 'itemReward'; return; }
+      if (itemChoices.length > 0) { gameState = 'itemReward'; ui.resetItemReward(); return; }
     }
     if (roomsCleared > 0 && roomsCleared % 3 === 0) {
       upgradeChoices = deckManager.getUpgradeChoices();
@@ -926,7 +926,7 @@ function handleCombatClear() {
       runStats.finalDeck = [...deckManager.collection];
       checkRunUnlocks(true);
       gameState = 'stats';
-      statsInputDelay = 2.0;
+      statsInputDelay = 0;
       input.clearFrame();
       currentCombatNode = null;
       return;
@@ -1175,7 +1175,7 @@ function update(logicDt, realDt) {
     playerDeathTimer -= realDt;
     if (playerDeathTimer <= 0) {
       gameState = 'stats';
-      statsInputDelay = 2.0;
+      statsInputDelay = 0;
     }
     input.clearFrame();
     return;
@@ -1417,12 +1417,9 @@ function update(logicDt, realDt) {
             player.heal(3);
             console.log(`[Rest] Healed 3 HP: ${player.hp}/${player.maxHp}`);
             gameState = 'map';
-          } else if (b.action === 'burn') {
-            if (deckManager.collection.length > 1) {
-              discardPendingCardId = '__BURN__';
-              discardReturnState = 'map';
-              gameState = 'discard';
-            }
+          } else if (b.action === 'upgrade') {
+            upgradeChoices = deckManager.getUpgradeChoices();
+            if (upgradeChoices.length > 0) { gameState = 'upgrade'; input.clearFrame(); return; }
           } else if (b.action === 'fortify') { // IDEA-08
             player._fortifyBuff = true;
             particles.spawnDamageNumber(player.x, player.y - 30, '+10% DMG NEXT FIGHT!');
@@ -2725,14 +2722,23 @@ function render() {
 
         // Customize button (above difficulty badges)
         if (meta.cosmeticsUnlocked()) {
-          const custH = 22, custY = badgeY - custH - 5;
-          ctx.fillStyle = '#111828';
-          ctx.fillRect(x + 8, custY, CARD_W - 16, custH);
-          ctx.strokeStyle = '#336688'; ctx.lineWidth = 1;
-          ctx.strokeRect(x + 8, custY, CARD_W - 16, custH);
-          ctx.fillStyle = '#77aacc'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-          ctx.fillText('✦ CUSTOMIZE', x + CARD_W / 2, custY + 15);
-          charSelectBoxes.push({ x: x + 8, y: custY, w: CARD_W - 16, h: custH, charId: ch.id, action: 'customize' });
+          const custH = 36, custY = badgeY - custH - 8;
+          const custX = x + 8, custW = CARD_W - 16;
+          const tNow = performance.now() / 1000;
+          ctx.save();
+          ctx.shadowColor = getPrismaticColor(tNow, 80, 65);
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = '#0e1a2e';
+          ctx.beginPath(); ctx.roundRect(custX, custY, custW, custH, 8); ctx.fill();
+          ctx.strokeStyle = getPrismaticColor(tNow, 80, 65);
+          ctx.lineWidth = 2;
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+          ctx.fillStyle = getPrismaticColor(tNow, 80, 80);
+          ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+          ctx.fillText('\u2756 CUSTOMIZE', custX + custW / 2, custY + 23);
+          ctx.restore();
+          charSelectBoxes.push({ x: custX, y: custY, w: custW, h: custH, charId: ch.id, action: 'customize' });
         }
       }
       charSelectBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, charId: ch.id, action: 'select' });
@@ -2786,22 +2792,31 @@ function render() {
     // Cosmetics Shop button — bottom-right, visible after first run
     if (meta.cosmeticsUnlocked()) {
       const ctx2 = renderer.ctx;
-      const cosmBtnW = 230, cosmBtnH = 40;
-      const cosmBtnX = canvas.width - cosmBtnW - 16;
-      const cosmBtnY = canvas.height - cosmBtnH - 16;
+      const cosmBtnW = 270, cosmBtnH = 54;
+      const cosmBtnX = canvas.width - cosmBtnW - 20;
+      const cosmBtnY = canvas.height - cosmBtnH - 20;
       const gold = meta.getGold();
       const t2 = performance.now() / 1000;
-      ctx2.fillStyle = '#101820';
+      const pulse = 0.85 + 0.15 * Math.sin(t2 * 2.2);
+      ctx2.save();
+      ctx2.shadowColor = getPrismaticColor(t2, 90, 65);
+      ctx2.shadowBlur = 18 * pulse;
+      ctx2.fillStyle = '#0a1220';
       ctx2.beginPath();
-      ctx2.roundRect(cosmBtnX, cosmBtnY, cosmBtnW, cosmBtnH, 8);
+      ctx2.roundRect(cosmBtnX, cosmBtnY, cosmBtnW, cosmBtnH, 10);
       ctx2.fill();
-      ctx2.strokeStyle = getPrismaticColor(t2, 80, 60);
-      ctx2.lineWidth = 1.5;
+      ctx2.strokeStyle = getPrismaticColor(t2, 90, 70);
+      ctx2.lineWidth = 2.5;
       ctx2.stroke();
-      ctx2.fillStyle = getPrismaticColor(t2, 80, 75);
-      ctx2.font = 'bold 14px monospace';
+      ctx2.shadowBlur = 0;
+      ctx2.fillStyle = getPrismaticColor(t2, 90, 82);
+      ctx2.font = 'bold 17px monospace';
       ctx2.textAlign = 'center';
-      ctx2.fillText(`★ COSMETICS  (${gold}g)`, cosmBtnX + cosmBtnW / 2, cosmBtnY + 26);
+      ctx2.fillText(`\u2728 COSMETICS SHOP`, cosmBtnX + cosmBtnW / 2, cosmBtnY + 24);
+      ctx2.fillStyle = getPrismaticColor(t2 + 1, 70, 65);
+      ctx2.font = '13px monospace';
+      ctx2.fillText(`${gold} gold available`, cosmBtnX + cosmBtnW / 2, cosmBtnY + 42);
+      ctx2.restore();
       charSelectBoxes.push({ x: cosmBtnX, y: cosmBtnY, w: cosmBtnW, h: cosmBtnH, action: 'cosmetics' });
     }
     return;
@@ -2897,9 +2912,9 @@ function render() {
         lines: [`Restore up to 3 HP`, `(${player.hp} → ${Math.min(player.hp + 3, player.maxHp)} / ${player.maxHp})`],
       },
       {
-        action: 'burn', label: 'Remove a Card', color: '#ffaa44', bg: '#1e1500',
-        canDo: deckManager.collection.length > 1,
-        lines: ['Permanently remove one card', `from your deck  (${deckManager.collection.length} cards)`],
+        action: 'upgrade', label: 'Upgrade a Card', color: '#44aaff', bg: '#001020',
+        canDo: deckManager.getUpgradeChoices().length > 0,
+        lines: ['Upgrade one card in your deck', `(${deckManager.getUpgradeChoices().length} upgradeable cards)`],
       },
       {
         action: 'fortify', label: 'Fortify', color: '#cc88ff', bg: '#14001e', // IDEA-08
@@ -3414,150 +3429,294 @@ function renderLootBoxOpen(ctx, t) {
   const el = lb.elapsed;
   const isSL = lb.isSL;
   const result = lb.result;
+  const rarCol = RARITY_COLORS[result.rarity] || '#ffffff';
+  const tierInfo = BOX_TIERS[lb.boxTier] || {};
+  const tierCol = tierInfo.color || '#888888';
+  const tierGlow = tierInfo.glowColor || '#ffffff';
+  const cx = canvas.width/2, cy = canvas.height/2;
 
-  // Background dim
-  const bgAlpha = (isSL && el >= 0.8 && el < 1.2) ? Math.min(1, (el-0.8)/0.4) : 0.88;
+  // ── helpers ──
+  const cl01 = v => Math.max(0, Math.min(1, v));
+  const easeOutCubic = v => 1 - Math.pow(1 - v, 3);
+  // hex color → [r,g,b]
+  const hexRGB = hex => {
+    const h = hex.replace('#','');
+    return [parseInt(h.slice(0,2),16), parseInt(h.slice(2,4),16), parseInt(h.slice(4,6),16)];
+  };
+  const rarRGB = hexRGB(rarCol);
+
+  // Timing by rarity tier
+  const isLeg = result.rarity === 'legendary';
+  const burstTime  = isSL ? 0.95 : (isLeg ? 0.85 : 0.78);
+  const revealStart= isSL ? 1.85 : (isLeg ? 1.0  : 0.88);
+  const typeStart  = isSL ? 2.8  : 9999;
+
+  // ── Background ──
+  let bgAlpha = 0.90;
+  if (isSL && el >= burstTime && el < burstTime + 0.35) {
+    bgAlpha = Math.min(1, (el - burstTime) / 0.35); // SL blackout
+  }
   ctx.fillStyle = `rgba(0,0,0,${bgAlpha})`;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const cx = canvas.width/2, cy = canvas.height/2;
-  const rarCol = RARITY_COLORS[result.rarity] || '#ffffff';
+  // ══════════════════════════════════
+  // PHASE 1: BOX (enter + shake + crack)
+  // ══════════════════════════════════
+  const boxVisible = el < burstTime && !(isSL && el >= burstTime - 0.1);
+  if (boxVisible) {
+    const BW = 130, BH = 130;
+    // Enter bounce (0 → 0.35s)
+    const enterT = cl01(el / 0.35);
+    const enterEase = _easeOutBack(enterT);
+    const boxCY = cy - 20 + BH * (1 - enterEase);
 
-  // ── Phase: shake/crack — draw box ──
-  if (el < 0.8 && !(isSL && el >= 0.5)) {
-    const inShake = el < 0.5;
-    const shake = inShake ? Math.sin(el*40)*(0.5-el)*30 : 0;
-    const BW=80, BH=80;
+    // Shake builds then goes frantic near burst
+    const shakeIntensity = Math.pow(cl01(el / burstTime), 2.5);
+    const shake = Math.sin(el * 45 + el * el * 8) * shakeIntensity * 22;
+    const shakeY = Math.sin(el * 31) * shakeIntensity * 8;
+
     ctx.save();
-    ctx.translate(cx+shake, cy);
-    // Box body
-    const tierCol = BOX_TIERS[lb.boxTier]?.color || '#888888';
+    ctx.translate(cx + shake, boxCY + shakeY);
+
+    // Outer glow (pulses faster near burst)
+    const glowFreq = 4 + shakeIntensity * 12;
+    const glowAmt = 18 + 22 * ((Math.sin(el * glowFreq) + 1) * 0.5);
+    ctx.save();
+    ctx.shadowColor = tierGlow;
+    ctx.shadowBlur = glowAmt;
+
+    // Box body with rounded corners
     ctx.fillStyle = tierCol;
-    ctx.fillRect(-BW/2, -BH/2, BW, BH);
-    ctx.strokeStyle = BOX_TIERS[lb.boxTier]?.glowColor || '#ffffff';
+    ctx.beginPath(); ctx.roundRect(-BW/2, -BH/2, BW, BH, 10); ctx.fill();
+
+    // Shine stripe
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    ctx.beginPath(); ctx.roundRect(-BW/2 + 4, -BH/2 + 4, BW - 8, 18, 4); ctx.fill();
+
+    // Border
+    ctx.strokeStyle = tierGlow;
     ctx.lineWidth = 3;
-    ctx.strokeRect(-BW/2, -BH/2, BW, BH);
+    ctx.beginPath(); ctx.roundRect(-BW/2, -BH/2, BW, BH, 10); ctx.stroke();
+    ctx.restore();
+
     // Lid separator
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth=2;
-    ctx.beginPath(); ctx.moveTo(-BW/2, -6); ctx.lineTo(BW/2, -6); ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(-BW/2 + 6, -8); ctx.lineTo(BW/2 - 6, -8); ctx.stroke();
+
     // Label
-    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(BOX_TIERS[lb.boxTier]?.label || 'Box', 0, 6);
-    // Jagged fracture cracks
-    if (el >= 0.5) {
-      const crackProgress = Math.min(1, (el-0.5)/0.3);
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
-      ctx.globalAlpha = Math.min(1, crackProgress * 1.5);
-      // 4 irregular fracture lines radiating from center
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(tierInfo.label || 'Box', 0, 8);
+
+    // Crack lines (appear in last 35% before burst)
+    const crackStart = burstTime * 0.62;
+    if (el >= crackStart) {
+      const crackP = cl01((el - crackStart) / (burstTime - crackStart));
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1.5;
+      ctx.globalAlpha = cl01(crackP * 2);
       const fractures = [
-        [[0,0],[7,-10],[14,-8],[BW*0.48,-BH*0.44]],
-        [[0,0],[-6,-12],[-11,-5],[-BW*0.44,-BH*0.46]],
-        [[0,0],[9,7],[5,18],[BW*0.46,BH*0.45]],
-        [[0,0],[-8,9],[-BW*0.42,BH*0.38]],
+        [[0,0],[8,-12],[16,-10],[BW*0.48,-BH*0.46]],
+        [[0,0],[-7,-13],[-13,-6],[-BW*0.46,-BH*0.47]],
+        [[0,0],[10,8],[6,20],[BW*0.47,BH*0.46]],
+        [[0,0],[-9,10],[-BW*0.44,BH*0.40]],
+        [[0,0],[3,14],[BW*0.20,BH*0.48]],
+        [[0,0],[-4,-7],[-BW*0.28,-BH*0.49]],
       ];
       for (const frac of fractures) {
-        const pts = Math.max(2, Math.ceil(frac.length * crackProgress));
-        ctx.beginPath();
-        ctx.moveTo(frac[0][0], frac[0][1]);
+        const pts = Math.max(2, Math.ceil(frac.length * crackP));
+        ctx.beginPath(); ctx.moveTo(frac[0][0], frac[0][1]);
         for (let fi = 1; fi < pts; fi++) {
-          const fLerp = Math.min(1, crackProgress * frac.length - fi + 1);
-          const px = frac[fi-1][0] + (frac[fi][0]-frac[fi-1][0]) * fLerp;
-          const py = frac[fi-1][1] + (frac[fi][1]-frac[fi-1][1]) * fLerp;
-          ctx.lineTo(px, py);
+          const fLerp = cl01(crackP * frac.length - fi + 1);
+          ctx.lineTo(
+            frac[fi-1][0] + (frac[fi][0]-frac[fi-1][0]) * fLerp,
+            frac[fi-1][1] + (frac[fi][1]-frac[fi-1][1]) * fLerp
+          );
         }
         ctx.stroke();
       }
       ctx.globalAlpha = 1;
     }
     ctx.restore();
+
+    // Ambient glow pool under the box
+    const poolAlpha = 0.08 + shakeIntensity * 0.18;
+    const pool = ctx.createRadialGradient(cx, cy + 40, 0, cx, cy + 40, 160);
+    pool.addColorStop(0, `rgba(${hexRGB(tierGlow).join(',')},${poolAlpha})`);
+    pool.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = pool;
+    ctx.beginPath(); ctx.ellipse(cx, cy + 40, 160, 60, 0, 0, Math.PI * 2); ctx.fill();
   }
 
-  // ── Phase: shard burst (right as box breaks) ──
-  if (el >= 0.76 && el < 1.2 && !(isSL && el >= 0.8)) {
-    const shardAge = el - 0.76;
-    const tierCol = BOX_TIERS[lb.boxTier]?.color || '#888888';
-    const numShards = 10;
-    for (let s = 0; s < numShards; s++) {
-      const ang = (s / numShards) * Math.PI * 2 + s * 0.27;
-      const speed = 55 + (s % 3) * 38;
-      const sx = Math.cos(ang) * speed * shardAge;
-      const sy = Math.sin(ang) * speed * shardAge + shardAge * shardAge * 50;
-      const shardA = Math.max(0, 1 - shardAge / 0.38);
+  // ══════════════════════════════════
+  // PHASE 2: BURST EFFECTS
+  // ══════════════════════════════════
+  if (el >= burstTime && !(isSL && el >= burstTime + 0.35)) {
+    const bAge = el - burstTime;
+
+    // White flash (very brief)
+    const flashA = cl01(1 - bAge / 0.18);
+    if (flashA > 0) {
+      ctx.fillStyle = `rgba(255,255,255,${flashA * 0.75})`;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    // Light rays
+    const rayA = cl01(1 - bAge / 0.65) * (isSL ? 0.5 : 0.38);
+    if (rayA > 0) {
       ctx.save();
-      ctx.translate(cx + sx, cy + sy);
-      ctx.rotate(ang + shardAge * 4);
-      ctx.globalAlpha = shardA * 0.85;
-      ctx.fillStyle = tierCol;
-      ctx.fillRect(-5, -2, 10, 4);
+      ctx.translate(cx, cy - 20);
+      const rotation = bAge * 0.4;
+      const numRays = isSL ? 18 : 14;
+      for (let r = 0; r < numRays; r++) {
+        const ang = (r / numRays) * Math.PI * 2 + rotation;
+        const spread = 0.042;
+        ctx.beginPath(); ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(ang - spread) * 700, Math.sin(ang - spread) * 700);
+        ctx.lineTo(Math.cos(ang + spread) * 700, Math.sin(ang + spread) * 700);
+        ctx.closePath();
+        // Alternate tier and rarity color for rays
+        const useRar = r % 2 === 0;
+        ctx.fillStyle = useRar
+          ? `rgba(${rarRGB.join(',')},${rayA})`
+          : `rgba(${hexRGB(tierGlow).join(',')},${rayA})`;
+        ctx.fill();
+      }
       ctx.restore();
+    }
+
+    // Expanding ring waves
+    const ringCount = isSL ? 5 : 3;
+    for (let ring = 0; ring < ringCount; ring++) {
+      const rT = cl01((bAge - ring * 0.07) / 0.55);
+      if (rT <= 0) continue;
+      const ringR = easeOutCubic(rT) * (isSL ? 420 : 340);
+      const ringA = (1 - rT) * (ring === 0 ? 0.9 : 0.6);
+      ctx.save();
+      ctx.strokeStyle = ring % 2 === 0
+        ? `rgba(${rarRGB.join(',')},${ringA})`
+        : `rgba(${hexRGB(tierGlow).join(',')},${ringA})`;
+      ctx.lineWidth = ring === 0 ? 4 : 2.5;
+      ctx.beginPath(); ctx.arc(cx, cy - 20, Math.max(1, ringR), 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Shards flying outward
+    const shardDur = isSL ? 0.5 : 0.42;
+    if (bAge < shardDur) {
+      const numShards = isSL ? 24 : 16;
+      for (let s = 0; s < numShards; s++) {
+        const ang = (s / numShards) * Math.PI * 2 + s * 0.31;
+        const speed = (80 + (s % 4) * 55) + (isSL ? 40 : 0);
+        const grav = bAge * bAge * 80;
+        const sx = cx + Math.cos(ang) * speed * bAge;
+        const sy = (cy - 20) + Math.sin(ang) * speed * bAge + grav;
+        const shardA = Math.max(0, 1 - bAge / shardDur);
+        ctx.save();
+        ctx.translate(sx, sy);
+        ctx.rotate(ang + bAge * 6);
+        ctx.globalAlpha = shardA * 0.9;
+        // Alternate shard color between tier and rarity
+        ctx.fillStyle = s % 3 === 0 ? rarCol : tierCol;
+        ctx.fillRect(-6, -2.5, 12, 5);
+        ctx.restore();
+      }
     }
   }
 
-  // ── Phase: SL blackout ──
-  if (isSL && el >= 0.8 && el < 1.2) return; // just the dim background
+  // SL blackout — stop here during blackout window
+  if (isSL && el >= burstTime + 0.0 && el < burstTime + 0.35) return;
 
-  // ── Phase: SL beam ──
-  if (isSL && el >= 1.2 && el < 1.8) {
-    const prog = Math.min(1, (el-1.2)/0.6);
-    const beamH = canvas.height * prog;
-    const beamW = 60*(1-prog*0.6);
-    ctx.fillStyle = `rgba(255,255,255,${0.9-prog*0.4})`;
-    ctx.fillRect(cx-beamW/2, 0, beamW, beamH);
-    // Side glow
-    ctx.fillStyle = `rgba(${rarCol.replace('#','').match(/.{2}/g).map(h=>parseInt(h,16)).join(',')},0.3)`;
-    ctx.fillRect(cx-beamW*2, 0, beamW*5, beamH);
+  // SL beam of light
+  if (isSL && el >= burstTime + 0.35 && el < revealStart) {
+    const prog = cl01((el - (burstTime + 0.35)) / (revealStart - burstTime - 0.35));
+    const beamH = canvas.height * easeOutCubic(prog);
+    const beamW = 70 * (1 - prog * 0.55);
+    // Core beam
+    ctx.fillStyle = `rgba(255,255,255,${0.85 - prog * 0.35})`;
+    ctx.fillRect(cx - beamW / 2, 0, beamW, beamH);
+    // Wide color glow beside beam
+    const beamGrad = ctx.createLinearGradient(cx - beamW * 4, 0, cx + beamW * 4, 0);
+    beamGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    beamGrad.addColorStop(0.35, `rgba(${rarRGB.join(',')},0.22)`);
+    beamGrad.addColorStop(0.5, `rgba(255,255,255,0.12)`);
+    beamGrad.addColorStop(0.65, `rgba(${rarRGB.join(',')},0.22)`);
+    beamGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = beamGrad;
+    ctx.fillRect(cx - beamW * 4, 0, beamW * 8, beamH);
     return;
   }
 
-  // ── Phase: card reveal ──
-  const revealStart = isSL ? 1.8 : 0.8;
-  const typeStart = isSL ? 2.8 : 9999;
-  const holdStart = isSL ? 3.4 : 2.5;
-
+  // ══════════════════════════════════
+  // PHASE 3: CARD REVEAL
+  // ══════════════════════════════════
   if (el >= revealStart) {
-    const CW=280, CH=360;
-    let cardOffY;
-    if (isSL) {
-      const prog = Math.min(1, (el-revealStart)/1.0);
-      cardOffY = canvas.height*(1-_easeOutBack(prog));
-    } else {
-      const prog = Math.min(1, (el-revealStart)/0.7);
-      cardOffY = -canvas.height*(1-_easeOutBounce(prog));
-    }
-    const cardX = cx-CW/2;
-    const cardY = cy-CH/2 + cardOffY;
+    const CW = 300, CH = 390;
+    const revealDur = isSL ? 1.1 : 0.75;
+    const prog = cl01((el - revealStart) / revealDur);
+    const posEase = _easeOutBack(prog);
+    // Card flies up from below
+    const cardOffY = canvas.height * (1 - posEase);
+    const cardX = cx - CW / 2;
+    const cardY = cy - CH / 2 + cardOffY;
 
-    // Card background
-    ctx.fillStyle = '#0d0d18';
-    ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 12); ctx.fill();
-
-    // Rarity border glow
     const rarR = result.rarity === 'superleg' ? getPrismaticColor(t) : rarCol;
-    ctx.strokeStyle = rarR; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 12); ctx.stroke();
+    const rarRGB2 = result.rarity === 'superleg' ? [255, 200, 100] : rarRGB;
+
+    // Glow pool beneath the card
+    if (prog > 0.3) {
+      const poolA = cl01((prog - 0.3) / 0.5) * (isLeg || isSL ? 0.5 : 0.28);
+      const pool2 = ctx.createRadialGradient(cx, cardY + CH * 0.85, 0, cx, cardY + CH * 0.85, 220);
+      pool2.addColorStop(0, `rgba(${rarRGB2.join(',')},${poolA})`);
+      pool2.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = pool2;
+      ctx.beginPath(); ctx.ellipse(cx, cardY + CH * 0.85, 220, 80, 0, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Card body
+    ctx.fillStyle = '#0a0a18';
+    ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 14); ctx.fill();
+
+    // Rarity shimmer overlay for leg+
+    if (isLeg || isSL) {
+      const shimmer = (Math.sin(t * 3.5) + 1) * 0.5;
+      ctx.fillStyle = `rgba(${rarRGB2.join(',')},${0.06 + shimmer * 0.10})`;
+      ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 14); ctx.fill();
+    }
+
+    // Border glow
+    ctx.save();
+    ctx.shadowColor = rarR;
+    ctx.shadowBlur = (isLeg || isSL) ? 28 + Math.sin(t * 4) * 8 : 14;
+    ctx.strokeStyle = rarR;
+    ctx.lineWidth = (isLeg || isSL) ? 3.5 : 2.5;
+    ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 14); ctx.stroke();
+    ctx.restore();
 
     // Top color bar
     ctx.fillStyle = rarR;
-    ctx.fillRect(cardX+2, cardY+2, CW-4, 5);
+    ctx.fillRect(cardX + 3, cardY + 3, CW - 6, 6);
 
     // Rarity label
-    ctx.fillStyle = rarR; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
-    const rarLabel = result.rarity === 'superleg' ? 'SUPER LEGENDARY' : (result.rarity||'').toUpperCase();
-    ctx.fillText(rarLabel, cx, cardY+26);
+    ctx.fillStyle = rarR; ctx.font = 'bold 13px monospace'; ctx.textAlign = 'center';
+    const rarLabel = result.rarity === 'superleg' ? 'SUPER LEGENDARY' : (result.rarity || '').toUpperCase();
+    ctx.fillText(rarLabel, cx, cardY + 32);
 
     // Category label
-    ctx.fillStyle = '#667799'; ctx.font = '12px monospace';
-    ctx.fillText(CATEGORY_LABELS[result.category] || result.category, cx, cardY+44);
+    ctx.fillStyle = '#778899'; ctx.font = '13px monospace';
+    ctx.fillText(CATEGORY_LABELS[result.category] || result.category, cx, cardY + 52);
 
-    // Mini player preview
-    const prevR = 32;
-    const prevX = cx, prevY = cardY + 100;
+    // Preview circle
+    const prevR = 40;
+    const prevX = cx, prevY = cardY + 120;
     if (result.category === 'bodyColor') {
       if (result.animated && result.animFn) {
         result.animFn(ctx, prevX, prevY, prevR, t);
       } else if (result.value) {
+        ctx.save();
+        ctx.shadowColor = result.value; ctx.shadowBlur = 20;
         ctx.fillStyle = result.value;
-        ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
       }
     } else if (result.category === 'shape' && result.value) {
       ctx.fillStyle = '#44dd88';
@@ -3569,68 +3728,82 @@ function renderLootBoxOpen(ctx, t) {
       }
     } else if (result.category === 'aura') {
       ctx.fillStyle = '#44dd88';
-      ctx.beginPath(); ctx.arc(prevX, prevY, prevR*0.7, 0, Math.PI*2); ctx.fill();
-      drawPlayerAura(ctx, prevX, prevY, prevR*0.7, result.value, t, 50);
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR * 0.7, 0, Math.PI * 2); ctx.fill();
+      drawPlayerAura(ctx, prevX, prevY, prevR * 0.7, result.value, t, 50);
     } else {
-      // Generic preview circle with value color hint
       const previewCol = result.value && result.value.startsWith('#') ? result.value : '#44dd88';
+      ctx.save();
+      ctx.shadowColor = previewCol; ctx.shadowBlur = 20;
       ctx.fillStyle = previewCol;
-      ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
     }
 
     // Name
-    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(result.name, cx, cardY+170);
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(result.name, cx, cardY + 196);
 
-    // Duplicate notice or normal desc
+    // Subtitle
     if (result.isDuplicate) {
-      ctx.fillStyle = '#aaaaaa'; ctx.font = '13px monospace';
-      ctx.fillText('Already owned — +15 gold refunded', cx, cardY+198);
+      ctx.fillStyle = '#999999'; ctx.font = '13px monospace';
+      ctx.fillText('Already owned \u2014 +15 gold refunded', cx, cardY + 224);
     } else {
-      ctx.fillStyle = rarR; ctx.font = '13px monospace';
-      ctx.fillText('New cosmetic unlocked!', cx, cardY+198);
+      ctx.fillStyle = rarR; ctx.font = '14px monospace';
+      ctx.fillText('New cosmetic unlocked!', cx, cardY + 224);
     }
 
-    // SL typewriter text
+    // Orbiting sparkles for uncommon+ (and lots for legendary/SL)
+    const sparkCount = isSL ? 12 : isLeg ? 8 : (result.rarity === 'uncommon' ? 5 : 0);
+    if (sparkCount > 0 && prog > 0.5) {
+      const sparkA = cl01((prog - 0.5) / 0.4);
+      for (let s = 0; s < sparkCount; s++) {
+        const sa = (t * (isSL ? 1.4 : 0.9) + s * Math.PI * 2 / sparkCount) % (Math.PI * 2);
+        const orbitRx = CW * 0.52 + Math.sin(t * 0.8 + s) * 10;
+        const orbitRy = CH * 0.52 + Math.sin(t * 0.7 + s * 1.3) * 8;
+        const sx2 = cx + Math.cos(sa) * orbitRx;
+        const sy2 = cardY + CH / 2 + Math.sin(sa) * orbitRy;
+        const sAlpha = sparkA * (0.5 + 0.5 * Math.sin(t * 4.5 + s * 1.9));
+        const sSize = isSL ? 3.5 : 2.5;
+        ctx.save();
+        ctx.shadowColor = rarR; ctx.shadowBlur = 8;
+        ctx.fillStyle = `rgba(255,255,255,${sAlpha.toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(sx2, sy2, sSize, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // SL typewriter
     if (isSL && el >= typeStart) {
       const full = 'SUPER LEGENDARY!';
-      const chars = Math.min(full.length, Math.floor((el-typeStart)/(0.8/full.length)));
+      const chars = Math.min(full.length, Math.floor((el - typeStart) / (0.8 / full.length)));
+      ctx.save();
+      ctx.shadowColor = getPrismaticColor(t, 100, 70); ctx.shadowBlur = 20;
       ctx.fillStyle = getPrismaticColor(t, 100, 70);
-      ctx.font = 'bold 26px monospace';
-      ctx.fillText(full.slice(0,chars), cx, cardY-24);
+      ctx.font = 'bold 28px monospace'; ctx.textAlign = 'center';
+      ctx.fillText(full.slice(0, chars), cx, cardY - 28);
+      ctx.restore();
     }
 
-    // Rare/Legendary ambient particles (spawned via events at transition — just show shimmer text)
-    if (result.rarity === 'legendary' || result.rarity === 'superleg') {
-      const shimmer = (Math.sin(t*4)+1)*0.5;
-      ctx.fillStyle = `rgba(255,220,80,${0.15+shimmer*0.15})`;
-      ctx.fillRect(cardX, cardY, CW, CH);
-    }
-
-    // Duplicate ribbon — diagonal corner tag
+    // Duplicate ribbon
     if (result.isDuplicate) {
       ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(cardX, cardY, CW, CH, 12);
-      ctx.clip();
+      ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 14); ctx.clip();
       ctx.save();
       ctx.translate(cardX + CW - 2, cardY + 2);
       ctx.rotate(Math.PI / 4);
-      ctx.fillStyle = 'rgba(130,130,130,0.75)';
-      ctx.fillRect(-55, -12, 110, 24);
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 10px monospace';
-      ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(120,120,120,0.78)';
+      ctx.fillRect(-60, -13, 120, 26);
+      ctx.fillStyle = '#ffffff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
       ctx.fillText('DUPLICATE', 0, 4);
-      ctx.restore();
-      ctx.restore();
+      ctx.restore(); ctx.restore();
     }
 
     // Dismiss prompt
     if (lb.waitingDismiss) {
-      ctx.fillStyle = 'rgba(180,200,220,0.8)';
-      ctx.font = 'bold 15px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('[ Click to continue ]', cx, cardY+CH+28);
+      const pulse = 0.7 + 0.3 * Math.sin(t * 4);
+      ctx.fillStyle = `rgba(180,210,255,${pulse})`;
+      ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('[ Click to continue ]', cx, cardY + CH + 34);
     }
   }
 }

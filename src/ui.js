@@ -61,12 +61,15 @@ export class UI {
     this.activeSigils = null;
     // New unlocks to show on stats screen
     this.newUnlocks = [];
+    // Item reward animation
+    this._itemRewardAnimStart = null;
   }
 
   setItemManager(im) { this.itemManager = im; }
   setEnemies(enemies) { this.enemies = enemies; }
   setRunStats(stats) { this.runStats = stats; }
   setMouse(x, y) { this._mouseX = x; this._mouseY = y; }
+  resetItemReward() { this._itemRewardAnimStart = null; }
 
   update(dt) {
     this._pulseTimer += dt;
@@ -950,80 +953,238 @@ export class UI {
 
   // ───────────── ITEM REWARD SCREEN ─────────────
   drawItemReward(ctx, choices, itemDefs) {
-    ctx.fillStyle = 'rgba(0,0,0,0.88)';
-    ctx.fillRect(0, 0, this.width, this.height);
-    ctx.fillStyle = PAL.GOLD;
-    ctx.font = 'bold 34px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('CHOOSE A RELIC', this.width / 2, 75);
+    const now = Date.now();
+    if (!this._itemRewardAnimStart) this._itemRewardAnimStart = now;
+    const elapsed = now - this._itemRewardAnimStart;
 
+    // ── Easing helpers ──
+    const clamp01 = t => Math.max(0, Math.min(1, t));
+    const easeOutBack = t => {
+      const c1 = 1.70158, c3 = c1 + 1;
+      return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2);
+    };
+    const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+
+    // ── Timing ──
+    const CARD_0_START  = 420;   // ms when first card starts flying in
+    const CARD_STAGGER  = 160;   // ms between subsequent cards
+    const CARD_DUR      = 500;   // ms each card takes to arrive
+    const READY_AT = CARD_0_START + (choices.length - 1) * CARD_STAGGER + CARD_DUR + 80;
+    const ready = elapsed >= READY_AT;
+
+    const cx = this.width / 2;
+
+    // ── Background ──
+    ctx.fillStyle = 'rgba(0,0,0,0.90)';
+    ctx.fillRect(0, 0, this.width, this.height);
+
+    // ── Light rays (intro burst) ──
+    const rayDur = 900;
+    if (elapsed < rayDur) {
+      const rayAlpha = clamp01(1 - elapsed / rayDur) * 0.30;
+      ctx.save();
+      ctx.translate(cx, 230);
+      const rotation = elapsed * 0.00025;
+      for (let r = 0; r < 14; r++) {
+        const angle = (r / 14) * Math.PI * 2 + rotation;
+        const spread = 0.038;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle - spread) * 700, Math.sin(angle - spread) * 700);
+        ctx.lineTo(Math.cos(angle + spread) * 700, Math.sin(angle + spread) * 700);
+        ctx.closePath();
+        ctx.fillStyle = `rgba(255,215,0,${rayAlpha})`;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    // ── Expanding rings (3 waves) ──
+    for (let ring = 0; ring < 3; ring++) {
+      const ringT = clamp01((elapsed - ring * 90) / 450);
+      if (ringT <= 0) continue;
+      const ringR = easeOutCubic(ringT) * 320;
+      const ringAlpha = (1 - ringT) * 0.65;
+      ctx.save();
+      ctx.strokeStyle = `rgba(255,215,0,${ringAlpha})`;
+      ctx.lineWidth = 4 - ring;
+      ctx.beginPath();
+      ctx.arc(cx, 230, ringR, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // ── Center flash ──
+    if (elapsed < 220) {
+      const flashAlpha = clamp01(1 - elapsed / 220) * 0.55;
+      const flashR = easeOutCubic(elapsed / 220) * 140;
+      const grad = ctx.createRadialGradient(cx, 230, 0, cx, 230, flashR);
+      grad.addColorStop(0, `rgba(255,255,200,${flashAlpha})`);
+      grad.addColorStop(1, 'rgba(255,215,0,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(cx, 230, Math.max(1, flashR), 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ── Title ──
+    const titleT = clamp01(elapsed / 380);
+    if (titleT > 0) {
+      const titleScale = easeOutBack(titleT);
+      const titleAlpha = clamp01(elapsed / 220);
+      const pulse = ready ? 0.82 + 0.18 * Math.sin(elapsed * 0.003) : 1.0;
+      ctx.save();
+      ctx.globalAlpha = titleAlpha;
+      ctx.translate(cx, 75);
+      ctx.scale(titleScale, titleScale);
+      ctx.save();
+      ctx.shadowColor = PAL.GOLD;
+      ctx.shadowBlur = 24 * pulse;
+      ctx.fillStyle = PAL.GOLD;
+      ctx.font = 'bold 36px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('\u2756 CHOOSE A RELIC \u2756', 0, 0);
+      ctx.restore();
+      ctx.restore();
+    }
+
+    // ── Cards ──
     const CARD_W = 240, CARD_H = 280, GAP = 32;
     const totalW = choices.length * CARD_W + (choices.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
-    const startY = 110;
+    const finalY = 130;
+    const HP_RELICS = new Set(['iron_pulse','deadweight','cold_blood','abyss_heart','lifesteal_fang','last_rites']);
     this.itemBoxes = [];
 
     for (let i = 0; i < choices.length; i++) {
-      const x = startX + i * (CARD_W + GAP), y = startY;
+      const cardStartTime = CARD_0_START + i * CARD_STAGGER;
+      const rawT = (elapsed - cardStartTime) / CARD_DUR;
+      const cardT = clamp01(rawT);
+      if (cardT <= 0) continue;
+
+      const finalX = startX + i * (CARD_W + GAP);
       const def = itemDefs[choices[i]];
       if (!def) continue;
       const rarCol = def.rarity === 'rare' ? PAL.RARE : (def.rarity === 'uncommon' ? PAL.UNCOMMON : PAL.COMMON);
 
+      // Position: fly in from below with overshoot
+      const posEased = easeOutBack(cardT);
+      const flyFromY = this.height + 60;
+      const curY = finalY + (flyFromY - finalY) * (1 - posEased);
+
+      // Scale: grow from 0.75 smoothly
+      const scaleAnim = 0.75 + 0.25 * easeOutCubic(cardT);
+
+      // Hover & float (only when fully arrived)
+      const mx = this._mouseX, my = this._mouseY;
+      const isHovered = ready &&
+        mx >= finalX && mx <= finalX + CARD_W &&
+        my >= finalY && my <= finalY + CARD_H;
+      const hoverScale = ready ? (isHovered ? 1.07 : 1.0) : 1.0;
+      const floatY = ready ? Math.sin(elapsed * 0.00155 + i * 1.15) * 6 : 0;
+
+      // Arrival glow: brief extra shadow in the first 150ms
+      const arrivalGlow = clamp01(1 - (elapsed - cardStartTime - CARD_DUR) / 200);
+
+      ctx.save();
+      ctx.globalAlpha = Math.min(1, cardT * 3);
+      // Pivot around the card center for scale
+      ctx.translate(finalX + CARD_W / 2, curY + floatY + CARD_H / 2);
+      ctx.scale(scaleAnim * hoverScale, scaleAnim * hoverScale);
+      ctx.translate(-CARD_W / 2, -CARD_H / 2);
+
+      // Card body
       ctx.fillStyle = PAL.UI_PANEL;
       ctx.beginPath();
-      ctx.roundRect(x, y, CARD_W, CARD_H, 14);
+      ctx.roundRect(0, 0, CARD_W, CARD_H, 14);
       ctx.fill();
+
+      // Top color bar
       ctx.fillStyle = def.color || '#aaa';
-      ctx.fillRect(x, y, CARD_W, 5);
+      ctx.fillRect(0, 0, CARD_W, 5);
+
+      // Border with optional glow
+      ctx.save();
+      if (isHovered || arrivalGlow > 0) {
+        ctx.shadowColor = isHovered ? rarCol : (def.color || PAL.GOLD);
+        ctx.shadowBlur = isHovered ? 22 : 30 * arrivalGlow;
+      }
       ctx.strokeStyle = rarCol;
-      ctx.lineWidth = 2.5;
+      ctx.lineWidth = isHovered ? 3.5 : 2.5;
       ctx.beginPath();
-      ctx.roundRect(x, y, CARD_W, CARD_H, 14);
+      ctx.roundRect(0, 0, CARD_W, CARD_H, 14);
       ctx.stroke();
+      ctx.restore();
 
       // Icon circle
       ctx.save();
       ctx.shadowColor = def.color || '#aaa';
-      ctx.shadowBlur = 20;
+      ctx.shadowBlur = isHovered ? 32 : 18;
       ctx.fillStyle = def.color || '#aaa';
       ctx.beginPath();
-      ctx.arc(x + CARD_W / 2, y + 54, 28, 0, Math.PI * 2);
+      ctx.arc(CARD_W / 2, 54, 28, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 28px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(def.name[0], x + CARD_W / 2, y + 63);
+      ctx.fillText(def.name[0], CARD_W / 2, 63);
 
+      // Name
       ctx.fillStyle = PAL.TEXT;
       ctx.font = 'bold 19px monospace';
-      ctx.fillText(def.name, x + CARD_W / 2, y + 102);
+      ctx.fillText(def.name, CARD_W / 2, 102);
 
+      // Rarity
       ctx.fillStyle = rarCol;
       ctx.font = 'bold 13px monospace';
-      ctx.fillText(def.rarity.toUpperCase(), x + CARD_W / 2, y + 122);
+      ctx.fillText(def.rarity.toUpperCase(), CARD_W / 2, 122);
 
+      // Description
       ctx.fillStyle = '#ccc';
       ctx.font = '14px monospace';
-      this._wrapText(ctx, def.desc, x + 14, y + 148, CARD_W - 28, 20);
+      this._wrapText(ctx, def.desc, 14, 148, CARD_W - 28, 20);
 
-      // IDEA-07: warn Wraith players about HP relics that won't work
-      const HP_RELICS = new Set(['iron_pulse', 'deadweight', 'cold_blood', 'abyss_heart', 'lifesteal_fang', 'last_rites']);
+      // Wraith HP warning
       if (this.player && this.player._classPassives && this.player._classPassives.noHealingFromRelics &&
           (HP_RELICS.has(choices[i]) || def.desc.toLowerCase().includes(' hp'))) {
         ctx.fillStyle = PAL.MUTED;
         ctx.font = '11px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('No HP effect (Wraith)', x + CARD_W / 2, y + CARD_H - 10);
+        ctx.fillText('No HP effect (Wraith)', CARD_W / 2, CARD_H - 12);
       }
 
-      this.itemBoxes.push({ x, y, w: CARD_W, h: CARD_H, itemId: choices[i] });
+      // Sparkle orbit for non-common relics
+      if (ready && def.rarity !== 'common') {
+        const sparkCount = def.rarity === 'rare' ? 6 : 4;
+        for (let s = 0; s < sparkCount; s++) {
+          const sa = (elapsed * 0.00085 + s * Math.PI * 2 / sparkCount) % (Math.PI * 2);
+          const orbitR = 38 + Math.sin(elapsed * 0.0022 + s * 1.4) * 5;
+          const sx = CARD_W / 2 + Math.cos(sa) * orbitR;
+          const sy = 54 + Math.sin(sa) * orbitR;
+          const sAlpha = 0.45 + 0.55 * Math.sin(elapsed * 0.0035 + s * 2.1);
+          ctx.fillStyle = `rgba(255,255,255,${sAlpha.toFixed(2)})`;
+          ctx.beginPath();
+          ctx.arc(sx, sy, def.rarity === 'rare' ? 3 : 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      ctx.restore();
+
+      // Register hit box only once cards are settled
+      if (ready) {
+        this.itemBoxes.push({ x: finalX, y: finalY, w: CARD_W, h: CARD_H, itemId: choices[i] });
+      }
     }
 
-    ctx.fillStyle = PAL.MUTED;
-    ctx.font = '14px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Press SPACE to skip', this.width / 2, this.height - 36);
+    // ── Skip hint (only after cards are in) ──
+    if (ready) {
+      ctx.fillStyle = PAL.MUTED;
+      ctx.font = '14px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Press SPACE to skip', this.width / 2, this.height - 36);
+    }
   }
 
   handleItemClick(mx, my) {
@@ -1333,38 +1494,42 @@ export class UI {
         ? Math.min(5, leaderboard.length) * 22 + 60
         : 0;
       const deckStartY = deckY + lbOffset;
-      const dCW = 120, dCH = 32, dCGap = 6;
+      const dCW = 165, dCH = 52, dCGap = 8;
       const dCols = Math.floor((this.width - 80) / (dCW + dCGap));
       const deckRows = Math.ceil(stats.finalDeck.length / dCols);
-      const totalDeckH = deckRows * (dCH + dCGap) + 36;
+      const totalDeckH = deckRows * (dCH + dCGap) + 40;
 
       if (deckStartY + totalDeckH < this.height - 60) {
         ctx.fillStyle = PAL.MUTED;
-        ctx.font = 'bold 14px monospace';
+        ctx.font = 'bold 16px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(`FINAL DECK (${stats.finalDeck.length} cards)`, this.width / 2, deckStartY + 16);
+        ctx.fillText(`FINAL DECK (${stats.finalDeck.length} cards)`, this.width / 2, deckStartY + 18);
         const dStartX = (this.width - (Math.min(stats.finalDeck.length, dCols) * (dCW + dCGap) - dCGap)) / 2;
         for (let i = 0; i < stats.finalDeck.length; i++) {
           const def = this.cardDefs[stats.finalDeck[i]];
           if (!def) continue;
           const col = i % dCols, row = Math.floor(i / dCols);
           const dcx = dStartX + col * (dCW + dCGap);
-          const dcy = deckStartY + 26 + row * (dCH + dCGap);
+          const dcy = deckStartY + 30 + row * (dCH + dCGap);
           const rarCol = def.rarity === 'rare' ? PAL.RARE : (def.rarity === 'uncommon' ? PAL.UNCOMMON : PAL.COMMON);
           ctx.fillStyle = '#111120';
-          ctx.fillRect(dcx, dcy, dCW, dCH);
+          ctx.beginPath();
+          ctx.roundRect(dcx, dcy, dCW, dCH, 5);
+          ctx.fill();
           ctx.fillStyle = def.color || '#5577aa';
-          ctx.fillRect(dcx, dcy, dCW, 2);
-          ctx.strokeStyle = rarCol + '66';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(dcx, dcy, dCW, dCH);
+          ctx.fillRect(dcx, dcy, dCW, 3);
+          ctx.strokeStyle = rarCol + '88';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.roundRect(dcx, dcy, dCW, dCH, 5);
+          ctx.stroke();
           ctx.fillStyle = PAL.TEXT;
-          ctx.font = 'bold 10px monospace';
+          ctx.font = 'bold 13px monospace';
           ctx.textAlign = 'center';
-          ctx.fillText(def.name, dcx + dCW / 2, dcy + 14);
+          ctx.fillText(def.name, dcx + dCW / 2, dcy + 22);
           ctx.fillStyle = PAL.MUTED;
-          ctx.font = '9px monospace';
-          ctx.fillText(`${def.type} · ${def.cost}AP`, dcx + dCW / 2, dcy + 26);
+          ctx.font = '11px monospace';
+          ctx.fillText(`${def.type} · ${def.cost}AP`, dcx + dCW / 2, dcy + 40);
         }
       }
     }
@@ -1777,8 +1942,8 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
 
   // Category tabs
   const cats = Object.keys(CATEGORY_LABELS);
-  const tabW = Math.min(120, (this.width-40)/cats.length);
-  const tabH = 34;
+  const tabW = Math.min(150, (this.width-40)/cats.length);
+  const tabH = 46;
   const tabsX = (this.width - cats.length*tabW)/2;
   const tabsY = 78;
   for (let i = 0; i < cats.length; i++) {
@@ -1786,31 +1951,31 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
     const tx = tabsX + i*tabW;
     const isActive = cat === activeTab;
     ctx.fillStyle = isActive ? '#1a2a3a' : '#0d0d18';
-    ctx.fillRect(tx, tabsY, tabW-2, tabH);
-    ctx.strokeStyle = isActive ? charColor : '#222233'; ctx.lineWidth = isActive?2:1;
-    ctx.strokeRect(tx, tabsY, tabW-2, tabH);
+    ctx.beginPath(); ctx.roundRect(tx, tabsY, tabW-3, tabH, 6); ctx.fill();
+    ctx.strokeStyle = isActive ? charColor : '#222233'; ctx.lineWidth = isActive?2.5:1;
+    ctx.stroke();
     ctx.fillStyle = isActive ? charColor : PAL.MUTED;
-    ctx.font = isActive ? 'bold 11px monospace' : '11px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(CATEGORY_LABELS[cat], tx+tabW/2-1, tabsY+21);
-    this.cosmeticPanelBoxes.push({ x:tx, y:tabsY, w:tabW-2, h:tabH, action:'tab', tab:cat });
+    ctx.font = isActive ? 'bold 14px monospace' : '13px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(CATEGORY_LABELS[cat], tx+tabW/2-1, tabsY+29);
+    this.cosmeticPanelBoxes.push({ x:tx, y:tabsY, w:tabW-3, h:tabH, action:'tab', tab:cat });
   }
 
   const contentY = tabsY + tabH + 12;
   const equipped = meta.getEquipped(charId);
 
   // Preview panel — right side
-  const prevW = 200, prevH = this.height - contentY - 16;
+  const prevW = 250, prevH = this.height - contentY - 16;
   const prevX = this.width - prevW - 16;
   const prevY = contentY;
   ctx.fillStyle = '#0f0f1c';
   ctx.beginPath(); ctx.roundRect(prevX, prevY, prevW, prevH, 10); ctx.fill();
-  ctx.strokeStyle = charColor + '44'; ctx.lineWidth=1; ctx.stroke();
-  ctx.fillStyle = charColor; ctx.font='bold 13px monospace'; ctx.textAlign='center';
-  ctx.fillText('PREVIEW', prevX+prevW/2, prevY+20);
+  ctx.strokeStyle = charColor + '66'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle = charColor; ctx.font='bold 16px monospace'; ctx.textAlign='center';
+  ctx.fillText('PREVIEW', prevX+prevW/2, prevY+24);
 
   // Draw preview player
-  const pCX = prevX+prevW/2, pCY = prevY+80;
-  const pR = 28;
+  const pCX = prevX+prevW/2, pCY = prevY+100;
+  const pR = 36;
   const eq = meta.getEquipped(charId);
   const bodyDef = CosmeticById[eq.bodyColor];
   const outlineDef = CosmeticById[eq.outlineColor];
@@ -1844,17 +2009,17 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
   ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.fill();
 
   // Equipped slots list in preview
-  let slotY = prevY+130;
+  let slotY = prevY+170;
   ctx.textAlign='left';
   for (const cat of cats) {
     const eqId = eq[cat];
     const eDef = CosmeticById[eqId];
-    ctx.fillStyle = PAL.MUTED; ctx.font='10px monospace';
-    ctx.fillText(CATEGORY_LABELS[cat]+':', prevX+10, slotY);
+    ctx.fillStyle = PAL.MUTED; ctx.font='12px monospace';
+    ctx.fillText(CATEGORY_LABELS[cat]+':', prevX+12, slotY);
     ctx.fillStyle = eDef ? (RARITY_COLORS[eDef.rarity]||'#fff') : '#333344';
-    ctx.font = eDef ? 'bold 10px monospace' : '10px monospace';
-    ctx.fillText(eDef ? eDef.name : 'None', prevX+10, slotY+13);
-    slotY += 30;
+    ctx.font = eDef ? 'bold 12px monospace' : '12px monospace';
+    ctx.fillText(eDef ? eDef.name : 'None', prevX+12, slotY+16);
+    slotY += 36;
   }
 
   // Grid of owned items in active tab
@@ -1865,7 +2030,7 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
     .filter(c => c && c.category === activeTab)
     .sort((a,b) => _RARITY_ORDER_REV.indexOf(a.rarity) - _RARITY_ORDER_REV.indexOf(b.rarity));
 
-  const IW=140, IH=54, IGAP=8;
+  const IW=178, IH=68, IGAP=10;
   const cols = Math.max(1, Math.floor((gridW+IGAP)/(IW+IGAP)));
   const equippedId = eq[activeTab];
 
@@ -1893,7 +2058,7 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
     ctx.fillStyle = rarCol; ctx.fillRect(ix+2, iy+2, IW-4, 3);
 
     // Mini cosmetic swatch
-    const swX=ix+10, swY=iy+IH/2, swR=14;
+    const swX=ix+10, swY=iy+IH/2, swR=18;
     if (cDef.category==='bodyColor') {
       if (cDef.animated && cDef.animFn) { cDef.animFn(ctx, swX+swR, swY, swR, t); }
       else { ctx.fillStyle=cDef.value||'#888'; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.fill(); }
@@ -1929,13 +2094,13 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
     }
 
     // Name + rarity
-    ctx.fillStyle=isEquipped?'#88ffaa':'#ddeeff'; ctx.font=`${isEquipped?'bold ':''}11px monospace`; ctx.textAlign='left';
-    ctx.fillText(cDef.name, ix+IW*0.35, iy+22);
-    ctx.fillStyle=rarCol; ctx.font='9px monospace';
-    ctx.fillText(RARITY_LABELS[cDef.rarity]||cDef.rarity, ix+IW*0.35, iy+34);
+    ctx.fillStyle=isEquipped?'#88ffaa':'#ddeeff'; ctx.font=`${isEquipped?'bold ':''}14px monospace`; ctx.textAlign='left';
+    ctx.fillText(cDef.name, ix+IW*0.36, iy+26);
+    ctx.fillStyle=rarCol; ctx.font='11px monospace';
+    ctx.fillText(RARITY_LABELS[cDef.rarity]||cDef.rarity, ix+IW*0.36, iy+42);
     if (isEquipped) {
-      ctx.fillStyle='#44ff88'; ctx.font='9px monospace';
-      ctx.fillText('EQUIPPED', ix+IW*0.35, iy+46);
+      ctx.fillStyle='#44ff88'; ctx.font='bold 11px monospace';
+      ctx.fillText('EQUIPPED', ix+IW*0.36, iy+58);
     }
 
     const action = isEquipped ? 'unequip' : 'equip';
@@ -1943,11 +2108,11 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
   }
 
   // Back button
-  const backW=160, backH=36;
-  const backX=prevX+(prevW-backW)/2, backY=this.height-backH-14;
-  ctx.fillStyle='#1a1a2a'; ctx.beginPath(); ctx.roundRect(backX,backY,backW,backH,8); ctx.fill();
-  ctx.strokeStyle='#445566'; ctx.lineWidth=1; ctx.stroke();
-  ctx.fillStyle=PAL.MUTED; ctx.font='bold 14px monospace'; ctx.textAlign='center';
-  ctx.fillText('← Back', backX+backW/2, backY+23);
+  const backW=210, backH=46;
+  const backX=prevX+(prevW-backW)/2, backY=this.height-backH-16;
+  ctx.fillStyle='#1a1a2a'; ctx.beginPath(); ctx.roundRect(backX,backY,backW,backH,10); ctx.fill();
+  ctx.strokeStyle='#556677'; ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle=PAL.MUTED; ctx.font='bold 17px monospace'; ctx.textAlign='center';
+  ctx.fillText('\u2190 Back', backX+backW/2, backY+30);
   this.cosmeticPanelBoxes.push({ x:backX, y:backY, w:backW, h:backH, action:'back' });
 };

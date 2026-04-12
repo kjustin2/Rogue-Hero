@@ -23,7 +23,7 @@ export class AudioSynthesizer {
                'Normal_Battle7.mp3', 'Normal_Battle8.mp3'],
       map:    ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3', 'Selection_Map4.mp3'],
       menu:   ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3', 'Selection_Map4.mp3'],
-      intro:  ['Main_Menu.mp3', 'Main_Menu2.mp3', 'Main_Menu3.mp3', 'Main_Menu4.mp3'],
+      intro:  ['Main_Menu.mp3', 'Main_Menu2.mp3', 'Main_Menu3.mp3', 'Main_Menu4.mp3', 'Main_Menu5.mp3'],
     };
     // Per-pool shuffle index so we don't repeat until all played
     this._poolIndex = {};
