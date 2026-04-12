@@ -273,6 +273,28 @@ export class MetaProgress {
   }
 
   cosmeticsUnlocked() { return (this.state.totalRuns || 0) >= 1; }
+
+  // Returns the highest card unlock tier available based on run history.
+  // Tier 0: always available (from run 0)
+  // Tier 1: after 2 total runs
+  // Tier 2: after 5 total runs
+  // Tier 3: after 10 total runs OR first win
+  // Tier 4: after winning on Hard difficulty
+  getUnlockedTier() {
+    const runs = this.state.totalRuns || 0;
+    const wins = this.state.totalWins || 0;
+    const hardWin = (this.state.hardWins || 0) > 0;
+    if (hardWin) return 4;
+    if (runs >= 10 || wins >= 1) return 3;
+    if (runs >= 5) return 2;
+    if (runs >= 2) return 1;
+    return 0;
+  }
+
+  recordHardWin() {
+    this.state.hardWins = (this.state.hardWins || 0) + 1;
+    this.save();
+  }
 }
 
 // ── SCORE CALCULATOR ──

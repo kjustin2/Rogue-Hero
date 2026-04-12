@@ -10,7 +10,7 @@ import { ParticleSystem } from './Particles.js';
 import { AudioSynthesizer } from './audio.js';
 import { UI } from './ui.js';
 import { RoomManager } from './room.js';
-import { DeckManager, CardDefinitions } from './DeckManager.js';
+import { DeckManager, CardDefinitions, CARD_UNLOCK_TIERS } from './DeckManager.js';
 import { RunManager } from './RunManager.js';
 import { MetaProgress, calculateScore } from './MetaProgress.js';
 import { Characters, CharacterList, DIFFICULTY_NAMES, DIFFICULTY_COLORS, DIFFICULTY_MODS } from './Characters.js';
@@ -179,6 +179,10 @@ let statsInputDelay = 0;
 
 // Player death: brief animation delay before transitioning to stats
 let playerDeathTimer = 0;
+
+// Victory celebration animation
+let _victoryAnimStart = null; // timestamp when victory state began
+let _victoryReady = false;    // player can advance after 2.5s
 
 // Cosmetics state
 let lootBoxOpen = null;         // { boxTier, result, elapsed, isSL, waitingDismiss }
@@ -772,6 +776,7 @@ function spawnEnemies(node) {
 // but since it's called once per room clear (not every frame), it's acceptable as-is.
 function getAvailableCards() {
   const owned = deckManager.collection;
+  const unlockedTier = meta.getUnlockedTier();
   return Object.keys(CardDefinitions).filter(id => {
     if (owned.includes(id)) return false;
     const def = CardDefinitions[id];
@@ -781,7 +786,9 @@ function getAvailableCards() {
       if (meta.isMasteryCardUnlocked(id)) return true;
       return false;
     }
-    return true;
+    // Non-bonus cards: check unlock tier (default 0 = always available)
+    const cardTier = CARD_UNLOCK_TIERS[id] || 0;
+    return cardTier <= unlockedTier;
   });
 }
 
@@ -905,6 +912,7 @@ function checkRunUnlocks(won) {
 
 function handleCombatClear() {
   if (!player.alive) return; // Player died in same frame — skip room clear
+  _fadeAlpha = 0; // defensive reset — clears any residual dark overlay
   roomsCleared++;
   runStats.roomsCleared = roomsCleared;
   // IDEA-08: clear fortify buff after room clear
@@ -930,8 +938,12 @@ function handleCombatClear() {
       runStats.floor = runManager.floor;
       runStats.finalDeck = [...deckManager.collection];
       checkRunUnlocks(true);
-      gameState = 'stats';
-      statsInputDelay = 0;
+      if (selectedDifficulty >= 2) meta.recordHardWin();
+      gameState = 'victory';
+      _victoryAnimStart = null;
+      _victoryReady = false;
+      events.emit('PLAY_SOUND', 'victoryFanfare');
+      audio.silenceMusic();
       input.clearFrame();
       currentCombatNode = null;
       return;
@@ -1355,6 +1367,31 @@ function update(logicDt, realDt) {
     return;
   }
 
+  // ── VICTORY CELEBRATION ──
+  if (gameState === 'victory') {
+    const now = performance.now();
+    if (!_victoryAnimStart) _victoryAnimStart = now;
+    const elapsed = now - _victoryAnimStart;
+    if (elapsed >= 2500) _victoryReady = true;
+    // Spawn gold particles continuously during animation
+    if (elapsed < 3000 && Math.random() < 0.35) {
+      const px = Math.random() * canvas.width;
+      const py = Math.random() * canvas.height * 0.7;
+      particles.spawnBurst(px, py, 1, ['#ffd700', '#ffaa00', '#ffffff', '#fffaaa']);
+    }
+    if (_victoryReady) {
+      if (input.consumeKey('enter') || input.consumeKey(' ') || input.consumeClick()) {
+        gameState = 'stats';
+        statsInputDelay = 0;
+        _fadeAlpha = 0.6; _fadeDir = -1;
+        input.clearFrame();
+        return;
+      }
+    }
+    input.clearFrame();
+    return;
+  }
+
   // ── STATS (replaces dead/victory) ──
   if (gameState === 'stats') {
     if (statsInputDelay > 0) {
@@ -1460,7 +1497,8 @@ function update(logicDt, realDt) {
     if (input.consumeKey('escape') || input.consumeKey('enter')) { gameState = 'map'; input.clearFrame(); return; }
     if (input.consumeClick()) {
       const cardId = ui.handleShopClick(input.mouse.x, input.mouse.y);
-      if (cardId && player.hp > 1) {
+      if (cardId === '__leave') { gameState = 'map'; input.clearFrame(); return; }
+      else if (cardId && player.hp > 1) {
         player.hp--;
         const addResult = deckManager.addCard(cardId);
         if (addResult === 'full') {
@@ -1514,7 +1552,8 @@ function update(logicDt, realDt) {
     if (input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
     if (input.consumeClick()) {
       const itemId = ui.handleItemClick(input.mouse.x, input.mouse.y);
-      if (itemId) {
+      if (itemId === '__skip') { gameState = 'map'; }
+      else if (itemId) {
         itemManager.add(itemId, player, tempo);
         runStats.itemsCollected++;
         events.emit('PLAY_SOUND', 'itemPickup');
@@ -1535,7 +1574,8 @@ function update(logicDt, realDt) {
     if (input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
     if (input.consumeClick()) {
       const cardId = ui.handleUpgradeClick(input.mouse.x, input.mouse.y);
-      if (cardId) {
+      if (cardId === '__skip') { gameState = 'map'; }
+      else if (cardId) {
         deckManager.upgradeCard(cardId);
         events.emit('PLAY_SOUND', 'upgrade');
         gameState = 'map';
@@ -1561,15 +1601,26 @@ function update(logicDt, realDt) {
 
   // ── PREP ──
   if (gameState === 'prep') {
-    if (input.consumeKey('enter')) {
+    let startCombat = input.consumeKey('enter');
+    if (input.consumeClick()) {
+      const mx = input.mouse.x, my = input.mouse.y;
+      // Check fight button first
+      if (ui.prepFightBox) {
+        const fb = ui.prepFightBox;
+        if (mx >= fb.x && mx <= fb.x + fb.w && my >= fb.y && my <= fb.y + fb.h) {
+          startCombat = true;
+        }
+      }
+      if (!startCombat) ui.handlePrepClick(mx, my);
+    }
+    if (startCombat) {
       console.log(`[Prep] Hand: [${deckManager.hand.join(', ')}]`);
       particles.spawnRoomEntryFlash();
       gameState = 'playing';
       _combatStartFlash = 0.5;
-      _fadeAlpha = 0.5; _fadeDir = -1; // brief fade-in
+      _fadeAlpha = 0; // no dark overlay when entering combat
       _ambientInit = false; // reset ambient particles for new room
     }
-    if (input.consumeClick()) ui.handlePrepClick(input.mouse.x, input.mouse.y);
     input.clearFrame();
     return;
   }
@@ -2300,7 +2351,7 @@ function render() {
     // Prominent living silhouette — centered lower to avoid exit button
     {
       const _tSil = performance.now() / 1000;
-      const silX = canvas.width / 2, silY = canvas.height * 0.72;
+      const silX = canvas.width / 2, silY = canvas.height * 0.82;
       // Outer glow rings — prismatic pulse
       for (let _ring = 3; _ring >= 0; _ring--) {
         const _rPhase = _tSil * 0.5 + _ring * 0.8;
@@ -3008,6 +3059,12 @@ function render() {
     return;
   }
 
+  // ── VICTORY CELEBRATION ──
+  if (gameState === 'victory') {
+    _drawVictoryScreen(renderer.ctx);
+    return;
+  }
+
   // ── STATS ──
   if (gameState === 'stats') {
     // Score is computed once; re-use cached value to avoid recalculating every frame
@@ -3429,16 +3486,37 @@ function drawDraftScreen() {
     ctx.fillText(`${def.range}px range`, x + CARD_W / 2, startY + 134);
 
     // DMG
+    let dmgLineY = startY + 164;
     if (def.damage > 0) {
       ctx.fillStyle = '#ff9988';
       ctx.font = 'bold 20px monospace';
-      ctx.fillText(`${def.damage} DMG`, x + CARD_W / 2, startY + 164);
+      ctx.fillText(`${def.damage} DMG`, x + CARD_W / 2, dmgLineY);
+      dmgLineY += 22;
+    }
+    // HP cost / cursed / self-damage indicators
+    if (def.hpCost || def.selfDamage || def.cursed || def.selfDamagePerHit) {
+      ctx.fillStyle = '#ff4455';
+      ctx.font = 'bold 14px monospace';
+      const costParts = [];
+      if (def.hpCost) costParts.push(`Costs ${def.hpCost} HP`);
+      if (def.selfDamage) costParts.push(`Costs ${def.selfDamage} HP`);
+      if (def.selfDamagePerHit) costParts.push(`${def.selfDamagePerHit} HP/hit`);
+      if (def.cursed) costParts.push('CURSED');
+      ctx.fillText(costParts.join(' · '), x + CARD_W / 2, dmgLineY);
+      dmgLineY += 18;
+    }
+    // Slot width indicator
+    if (def.slotWidth && def.slotWidth > 1) {
+      ctx.fillStyle = '#ffaa44';
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText('[2 SLOTS]', x + CARD_W / 2, dmgLineY);
+      dmgLineY += 18;
     }
 
     // Description
     ctx.fillStyle = '#bbbbc8';
     ctx.font = '13px monospace';
-    ui._wrapText(ctx, def.desc, x + 14, startY + 196, CARD_W - 28, 18);
+    ui._wrapText(ctx, def.desc, x + 14, Math.max(dmgLineY, startY + 196), CARD_W - 28, 18);
 
     // Pick CTA
     ctx.fillStyle = rarCol;
@@ -4027,6 +4105,130 @@ function drawPauseMenu() {
 
   ctx.fillStyle = '#444'; ctx.font = '11px monospace'; ctx.textAlign = 'center';
   ctx.fillText('ESC to resume', canvas.width / 2, py + panelH - 14);
+}
+
+// ── VICTORY SCREEN RENDER ────────────────────────────────────────────────
+function _drawVictoryScreen(ctx) {
+  const now = performance.now();
+  if (!_victoryAnimStart) _victoryAnimStart = now;
+  const elapsed = now - _victoryAnimStart;
+  const cl01 = t => Math.max(0, Math.min(1, t));
+  const easeOut = t => 1 - Math.pow(1 - t, 3);
+  const easeOutBack = t => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+
+  // Background — deep royal gradient
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  bgGrad.addColorStop(0, '#050510');
+  bgGrad.addColorStop(0.5, '#100820');
+  bgGrad.addColorStop(1, '#080510');
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Gold overlay flash (0–500ms)
+  if (elapsed < 500) {
+    const flashA = cl01(1 - elapsed / 500) * 0.55;
+    ctx.fillStyle = `rgba(255,215,0,${flashA})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // Expanding concentric rings
+  for (let ring = 0; ring < 5; ring++) {
+    const ringDelay = ring * 180;
+    const ringT = cl01((elapsed - ringDelay) / 700);
+    if (ringT <= 0) continue;
+    const ringR = easeOut(ringT) * canvas.width * 0.7;
+    const ringA = (1 - ringT) * 0.5 * (1 - ring * 0.12);
+    ctx.save();
+    ctx.strokeStyle = ring % 2 === 0 ? `rgba(255,215,0,${ringA})` : `rgba(255,255,255,${ringA * 0.6})`;
+    ctx.lineWidth = 4 - ring * 0.5;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(1, ringR), 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Star field — gold sparkles drifting upward
+  {
+    const starCount = 60;
+    const starSeed = Math.floor(elapsed / 16);
+    for (let s = 0; s < starCount; s++) {
+      const phase = (s * 137.5 + starSeed * 0.4 + s * 0.7) % 1000;
+      const sx = (s * 67.3 + Math.sin(s * 2.1 + elapsed * 0.0006) * 80 + canvas.width * 0.5 + (s - 30) * (canvas.width / 60)) % canvas.width;
+      const sy = ((canvas.height * 1.1 - (phase * canvas.height / 400 + elapsed * 0.03 * (0.5 + (s % 5) * 0.15)) % (canvas.height * 1.2)));
+      const sAlpha = cl01(Math.sin(elapsed * 0.003 + s * 1.7) * 0.5 + 0.5) * 0.9;
+      const sR = 1 + (s % 4) * 0.8;
+      ctx.globalAlpha = sAlpha;
+      ctx.fillStyle = s % 3 === 0 ? '#ffd700' : (s % 3 === 1 ? '#ffffff' : '#ffaa44');
+      ctx.beginPath();
+      ctx.arc(sx, sy, sR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // VICTORY! text — scales in with easeOutBack
+  const titleT = cl01((elapsed - 100) / 600);
+  if (titleT > 0) {
+    const scale = easeOutBack(titleT);
+    const pulse = 0.85 + 0.15 * Math.sin(elapsed * 0.0028);
+    ctx.save();
+    ctx.translate(cx, cy - 80);
+    ctx.scale(scale, scale);
+    // Gold shimmer text — double draw for glow effect
+    ctx.globalAlpha = cl01(elapsed / 300) * pulse;
+    ctx.font = 'bold 82px monospace';
+    ctx.textAlign = 'center';
+    // Outer glow pass (offset double-draw instead of shadowBlur)
+    for (let dx = -3; dx <= 3; dx += 3) {
+      for (let dy = -3; dy <= 3; dy += 3) {
+        if (dx === 0 && dy === 0) continue;
+        ctx.fillStyle = 'rgba(255,140,0,0.25)';
+        ctx.fillText('VICTORY!', dx, dy);
+      }
+    }
+    // Prismatic gold main text
+    const shimmerT = elapsed * 0.001;
+    ctx.fillStyle = `hsl(${45 + Math.sin(shimmerT) * 15},100%,${65 + Math.sin(shimmerT * 1.3) * 10}%)`;
+    ctx.fillText('VICTORY!', 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  }
+
+  // Score preview
+  const scoreT = cl01((elapsed - 800) / 400);
+  if (scoreT > 0 && runStats._cachedScore) {
+    ctx.globalAlpha = easeOut(scoreT);
+    ctx.fillStyle = '#ffd700';
+    ctx.font = 'bold 32px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${runStats._cachedScore} pts`, cx, cy + 10);
+    ctx.globalAlpha = 1;
+  }
+
+  // Character + floor info
+  const infoT = cl01((elapsed - 1200) / 400);
+  if (infoT > 0) {
+    const ch = Characters[selectedCharId];
+    ctx.globalAlpha = easeOut(infoT);
+    ctx.fillStyle = ch ? ch.color : '#aaa';
+    ctx.font = 'bold 20px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${ch?.name || 'Hero'}  ·  Floor ${runStats.floor || 1}`, cx, cy + 52);
+    ctx.globalAlpha = 1;
+  }
+
+  // "Press any key" prompt — fades in after 2.5s
+  if (_victoryReady) {
+    const promptAlpha = cl01((elapsed - 2500) / 400);
+    const promptPulse = 0.65 + 0.35 * Math.sin(elapsed * 0.003);
+    ctx.globalAlpha = promptAlpha * promptPulse;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '16px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('▶  Press ENTER / SPACE or click to continue', cx, canvas.height - 48);
+    ctx.globalAlpha = 1;
+  }
 }
 
 // Initialize audio on first interaction (browser policy)

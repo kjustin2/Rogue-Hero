@@ -98,6 +98,44 @@ export class UI {
     if (this.player && this.player.comboCount > 0) this._drawComboBar(ctx);
   }
 
+  // ── Reusable prominent action button ────────────────────────────────
+  // Returns hit-box { x, y, w, h }. Caller stores it and checks clicks.
+  _drawActionButton(ctx, label, sublabel, x, y, w, h, color = '#1450a0') {
+    const pulse = 0.72 + 0.28 * Math.sin(Date.now() / 280);
+    ctx.save();
+    // Background
+    ctx.fillStyle = color;
+    ctx.globalAlpha = 0.85 + 0.15 * pulse;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 8);
+    ctx.fill();
+    // Pulsing border (double-draw instead of shadowBlur)
+    ctx.globalAlpha = 0.4 * pulse;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 8);
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#88ccff';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 8);
+    ctx.stroke();
+    // Label
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold 22px monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText(label, x + w / 2, y + h / 2 + (sublabel ? -3 : 7));
+    if (sublabel) {
+      ctx.fillStyle = 'rgba(180,220,255,0.7)';
+      ctx.font = '11px monospace';
+      ctx.fillText(sublabel, x + w / 2, y + h / 2 + 13);
+    }
+    ctx.restore();
+    return { x, y, w, h };
+  }
+
   // IDEA-06: sigil count indicator near relics area
   _drawSigilCount(ctx) {
     const active = this.activeSigils.filter(s => !s.triggered).length;
@@ -850,6 +888,11 @@ export class UI {
       this.prepBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
     }
 
+    // START COMBAT button (prominent, bottom-right)
+    const btnW = 280, btnH = 58;
+    const btnX = this.width - btnW - 24;
+    const btnY = this.height - btnH - 24;
+    this.prepFightBox = this._drawActionButton(ctx, '⚔  START COMBAT', 'or press ENTER', btnX, btnY, btnW, btnH, '#4a1010');
   }
 
   _drawCardTooltip(ctx, cardId, mx, my) {
@@ -1032,19 +1075,18 @@ export class UI {
     if (titleT > 0) {
       const titleScale = easeOutBack(titleT);
       const titleAlpha = clamp01(elapsed / 220);
-      const pulse = ready ? 0.82 + 0.18 * Math.sin(elapsed * 0.003) : 1.0;
       ctx.save();
       ctx.globalAlpha = titleAlpha;
       ctx.translate(cx, 75);
       ctx.scale(titleScale, titleScale);
-      ctx.save();
-      ctx.shadowColor = PAL.GOLD;
-      ctx.shadowBlur = 24 * pulse;
-      ctx.fillStyle = PAL.GOLD;
+      // Double-draw glow instead of shadowBlur (perf-safe)
       ctx.font = 'bold 36px monospace';
       ctx.textAlign = 'center';
+      ctx.fillStyle = 'rgba(255,180,0,0.3)';
+      ctx.fillText('\u2756 CHOOSE A RELIC \u2756', -2, 2);
+      ctx.fillText('\u2756 CHOOSE A RELIC \u2756', 2, -2);
+      ctx.fillStyle = PAL.GOLD;
       ctx.fillText('\u2756 CHOOSE A RELIC \u2756', 0, 0);
-      ctx.restore();
       ctx.restore();
     }
 
@@ -1103,28 +1145,33 @@ export class UI {
       ctx.fillStyle = def.color || '#aaa';
       ctx.fillRect(0, 0, CARD_W, 5);
 
-      // Border with optional glow
-      ctx.save();
+      // Border — double-stroke approach (outer faint + inner solid) instead of shadowBlur
       if (isHovered || arrivalGlow > 0) {
-        ctx.shadowColor = isHovered ? rarCol : (def.color || PAL.GOLD);
-        ctx.shadowBlur = isHovered ? 22 : 30 * arrivalGlow;
+        const glowA = isHovered ? 0.55 : 0.45 * arrivalGlow;
+        ctx.strokeStyle = isHovered ? rarCol : (def.color || PAL.GOLD);
+        ctx.lineWidth = isHovered ? 8 : 10;
+        ctx.globalAlpha = glowA * ctx.globalAlpha;
+        ctx.beginPath();
+        ctx.roundRect(0, 0, CARD_W, CARD_H, 14);
+        ctx.stroke();
+        ctx.globalAlpha = Math.min(1, ctx.globalAlpha / glowA);
       }
       ctx.strokeStyle = rarCol;
       ctx.lineWidth = isHovered ? 3.5 : 2.5;
       ctx.beginPath();
       ctx.roundRect(0, 0, CARD_W, CARD_H, 14);
       ctx.stroke();
-      ctx.restore();
 
-      // Icon circle
-      ctx.save();
-      ctx.shadowColor = def.color || '#aaa';
-      ctx.shadowBlur = isHovered ? 32 : 18;
-      ctx.fillStyle = def.color || '#aaa';
+      // Icon circle — outer ring instead of shadowBlur
+      const iconCol = def.color || '#aaa';
+      ctx.fillStyle = iconCol + '44';
+      ctx.beginPath();
+      ctx.arc(CARD_W / 2, 54, 36, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = iconCol;
       ctx.beginPath();
       ctx.arc(CARD_W / 2, 54, 28, 0, Math.PI * 2);
       ctx.fill();
-      ctx.restore();
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 28px monospace';
       ctx.textAlign = 'center';
@@ -1178,17 +1225,24 @@ export class UI {
       }
     }
 
-    // ── Skip hint (only after cards are in) ──
+    // ── Skip button (only after cards are in) ──
     if (ready) {
-      ctx.fillStyle = PAL.MUTED;
-      ctx.font = '14px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('Press SPACE to skip', this.width / 2, this.height - 36);
+      const btnW = 260, btnH = 52;
+      const btnX = this.width / 2 - btnW / 2;
+      const btnY = this.height - btnH - 20;
+      this.skipItemBox = this._drawActionButton(ctx, '▶  SKIP', 'or press SPACE', btnX, btnY, btnW, btnH, '#1a1a3a');
+    } else {
+      this.skipItemBox = null;
     }
   }
 
   handleItemClick(mx, my) {
     if (!this.itemBoxes) return null;
+    // Check skip button first
+    if (this.skipItemBox) {
+      const b = this.skipItemBox;
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return '__skip';
+    }
     for (const b of this.itemBoxes) {
       if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return b.itemId;
     }
@@ -1276,13 +1330,17 @@ export class UI {
       this.upgradeBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
     }
 
-    ctx.fillStyle = PAL.MUTED;
-    ctx.font = '14px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('Press SPACE to skip', this.width / 2, this.height - 36);
+    const btnW = 280, btnH = 52;
+    const btnX = this.width / 2 - btnW / 2;
+    const btnY = this.height - btnH - 20;
+    this.skipUpgradeBox = this._drawActionButton(ctx, '▶  SKIP UPGRADE', 'or press SPACE', btnX, btnY, btnW, btnH, '#1a1a3a');
   }
 
   handleUpgradeClick(mx, my) {
+    if (this.skipUpgradeBox) {
+      const b = this.skipUpgradeBox;
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return '__skip';
+    }
     if (!this.upgradeBoxes) return null;
     for (const b of this.upgradeBoxes) {
       if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return b.cardId;
@@ -1371,7 +1429,7 @@ export class UI {
     ctx.font = '14px monospace';
     ctx.fillText('Cost: 1 HP per card. Click to buy.', this.width / 2, 88);
 
-    const CARD_W = 200, CARD_H = 215, GAP = 24;
+    const CARD_W = 200, CARD_H = 270, GAP = 24;
     const totalW = shopCards.length * CARD_W + (shopCards.length - 1) * GAP;
     const startX = (this.width - totalW) / 2;
     const startY = 118;
@@ -1395,23 +1453,44 @@ export class UI {
       ctx.fillText(def.name, x + CARD_W / 2, y + 35);
       ctx.fillStyle = '#ff6666';
       ctx.font = 'bold 17px monospace';
-      ctx.fillText('1 HP', x + CARD_W / 2, y + 62);
+      ctx.fillText('Buy: 1 HP', x + CARD_W / 2, y + 62);
       ctx.fillStyle = '#44aaff';
       ctx.font = '15px monospace';
-      ctx.fillText(`${def.cost} AP | ${def.range}px`, x + CARD_W / 2, y + 87);
+      ctx.fillText(`${def.cost} AP | ${def.range}px range`, x + CARD_W / 2, y + 87);
+      ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
+      ctx.font = '14px monospace';
+      ctx.fillText(`${def.tempoShift > 0 ? '+' : ''}${def.tempoShift} Tempo`, x + CARD_W / 2, y + 107);
+      if (def.damage > 0) {
+        ctx.fillStyle = '#ff9988';
+        ctx.font = '14px monospace';
+        ctx.fillText(`${def.damage} DMG`, x + CARD_W / 2, y + 125);
+      }
+      if (def.hpCost || def.selfDamage || def.cursed) {
+        ctx.fillStyle = '#ff4455';
+        ctx.font = 'bold 12px monospace';
+        const cw = [];
+        if (def.hpCost) cw.push(`Costs ${def.hpCost} HP`);
+        if (def.selfDamage) cw.push(`Costs ${def.selfDamage} HP`);
+        if (def.cursed) cw.push('CURSED');
+        ctx.fillText(cw.join(' · '), x + CARD_W / 2, y + 143);
+      }
       ctx.fillStyle = PAL.MUTED;
-      ctx.font = '13px monospace';
-      this._wrapText(ctx, def.desc, x + 12, y + 115, CARD_W - 24, 16);
+      ctx.font = '12px monospace';
+      this._wrapText(ctx, def.desc, x + 12, y + 162, CARD_W - 24, 15);
       this.shopBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId: shopCards[i] });
     }
 
-    ctx.fillStyle = '#aabbcc';
-    ctx.font = 'bold 22px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText('[ PRESS ENTER TO LEAVE ]', this.width / 2, this.height - 32);
+    const btnW = 300, btnH = 52;
+    const btnX = this.width / 2 - btnW / 2;
+    const btnY = this.height - btnH - 20;
+    this.leaveShopBox = this._drawActionButton(ctx, '▶  LEAVE SHOP', 'or press ENTER', btnX, btnY, btnW, btnH, '#0d2a12');
   }
 
   handleShopClick(mx, my) {
+    if (this.leaveShopBox) {
+      const b = this.leaveShopBox;
+      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return '__leave';
+    }
     if (!this.shopBoxes) return null;
     for (const b of this.shopBoxes) {
       if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) return b.cardId;
@@ -1494,43 +1573,60 @@ export class UI {
         ? Math.min(5, leaderboard.length) * 22 + 60
         : 0;
       const deckStartY = deckY + lbOffset;
-      const dCW = 165, dCH = 52, dCGap = 8;
-      const dCols = Math.floor((this.width - 80) / (dCW + dCGap));
-      const deckRows = Math.ceil(stats.finalDeck.length / dCols);
-      const totalDeckH = deckRows * (dCH + dCGap) + 40;
-
-      if (deckStartY + totalDeckH < this.height - 60) {
-        ctx.fillStyle = PAL.MUTED;
-        ctx.font = 'bold 16px monospace';
+      const dCW = 220, dCH = 90, dCGap = 12;
+      const dCols = Math.max(1, Math.floor((this.width - 40) / (dCW + dCGap)));
+      ctx.fillStyle = PAL.MUTED;
+      ctx.font = 'bold 16px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(`FINAL DECK (${stats.finalDeck.length} cards)`, this.width / 2, deckStartY + 18);
+      const dStartX = (this.width - (Math.min(stats.finalDeck.length, dCols) * (dCW + dCGap) - dCGap)) / 2;
+      for (let i = 0; i < stats.finalDeck.length; i++) {
+        const def = this.cardDefs[stats.finalDeck[i]];
+        if (!def) continue;
+        const col = i % dCols, row = Math.floor(i / dCols);
+        const dcx = dStartX + col * (dCW + dCGap);
+        const dcy = deckStartY + 30 + row * (dCH + dCGap);
+        const rarCol = def.rarity === 'rare' ? PAL.RARE : (def.rarity === 'uncommon' ? PAL.UNCOMMON : PAL.COMMON);
+        ctx.fillStyle = '#111120';
+        ctx.beginPath();
+        ctx.roundRect(dcx, dcy, dCW, dCH, 6);
+        ctx.fill();
+        // Left color accent bar
+        ctx.fillStyle = def.color || '#5577aa';
+        ctx.fillRect(dcx, dcy, 3, dCH);
+        ctx.strokeStyle = rarCol;
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.roundRect(dcx, dcy, dCW, dCH, 6);
+        ctx.stroke();
+        // Card name
+        ctx.fillStyle = PAL.TEXT;
+        ctx.font = 'bold 17px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(`FINAL DECK (${stats.finalDeck.length} cards)`, this.width / 2, deckStartY + 18);
-        const dStartX = (this.width - (Math.min(stats.finalDeck.length, dCols) * (dCW + dCGap) - dCGap)) / 2;
-        for (let i = 0; i < stats.finalDeck.length; i++) {
-          const def = this.cardDefs[stats.finalDeck[i]];
-          if (!def) continue;
-          const col = i % dCols, row = Math.floor(i / dCols);
-          const dcx = dStartX + col * (dCW + dCGap);
-          const dcy = deckStartY + 30 + row * (dCH + dCGap);
-          const rarCol = def.rarity === 'rare' ? PAL.RARE : (def.rarity === 'uncommon' ? PAL.UNCOMMON : PAL.COMMON);
-          ctx.fillStyle = '#111120';
-          ctx.beginPath();
-          ctx.roundRect(dcx, dcy, dCW, dCH, 5);
-          ctx.fill();
-          ctx.fillStyle = def.color || '#5577aa';
-          ctx.fillRect(dcx, dcy, dCW, 3);
-          ctx.strokeStyle = rarCol + '88';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.roundRect(dcx, dcy, dCW, dCH, 5);
-          ctx.stroke();
-          ctx.fillStyle = PAL.TEXT;
-          ctx.font = 'bold 13px monospace';
-          ctx.textAlign = 'center';
-          ctx.fillText(def.name, dcx + dCW / 2, dcy + 22);
-          ctx.fillStyle = PAL.MUTED;
-          ctx.font = '11px monospace';
-          ctx.fillText(`${def.type} · ${def.cost}AP`, dcx + dCW / 2, dcy + 40);
+        ctx.fillText(def.name, dcx + dCW / 2, dcy + 22);
+        // Type + cost
+        ctx.fillStyle = PAL.MUTED;
+        ctx.font = '13px monospace';
+        ctx.fillText(`${def.type} · ${def.cost}AP`, dcx + dCW / 2, dcy + 41);
+        // Damage + tempo
+        if (def.damage > 0 || def.tempoShift !== 0) {
+          const parts = [];
+          if (def.damage > 0) parts.push(`${def.damage} DMG`);
+          if (def.tempoShift !== 0) parts.push(`${def.tempoShift > 0 ? '+' : ''}${def.tempoShift} T`);
+          ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
+          ctx.font = '12px monospace';
+          ctx.fillText(parts.join('  '), dcx + dCW / 2, dcy + 58);
         }
+        // Description (truncated)
+        ctx.fillStyle = '#aaa';
+        ctx.font = '11px monospace';
+        const descMax = dCW - 16;
+        let descText = def.desc || '';
+        if (ctx.measureText(descText).width > descMax) {
+          while (descText.length > 0 && ctx.measureText(descText + '…').width > descMax) descText = descText.slice(0, -1);
+          descText += '…';
+        }
+        ctx.fillText(descText, dcx + dCW / 2, dcy + 74);
       }
     }
 
@@ -1584,15 +1680,15 @@ export class UI {
   // ───────────── INVENTORY OVERLAY ─────────────
   drawInventoryOverlay(ctx) {
     const ItemDefinitions = window._itemDefs || {};
-    const panelW = Math.min(700, this.width - 60);
-    const panelH = Math.min(520, this.height - 80);
-    const px = (this.width - panelW) / 2;
-    const py = (this.height - panelH) / 2;
+    // Full-screen panel
+    const panelW = this.width - 40;
+    const panelH = this.height - 40;
+    const px = 20, py = 20;
 
-    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillStyle = 'rgba(0,0,0,0.92)';
     ctx.fillRect(0, 0, this.width, this.height);
 
-    ctx.fillStyle = '#111122';
+    ctx.fillStyle = '#0d0d1c';
     ctx.beginPath();
     ctx.roundRect(px, py, panelW, panelH, 16);
     ctx.fill();
@@ -1601,19 +1697,19 @@ export class UI {
     ctx.stroke();
 
     ctx.fillStyle = PAL.TEXT;
-    ctx.font = 'bold 22px monospace';
+    ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('INVENTORY', this.width / 2, py + 36);
+    ctx.fillText('INVENTORY', this.width / 2, py + 38);
 
     // Cards section
     const cardList = this.deckManager.collection;
     ctx.fillStyle = '#44aaff';
-    ctx.font = 'bold 14px monospace';
+    ctx.font = 'bold 15px monospace';
     ctx.textAlign = 'left';
     ctx.fillText(`CARDS (${cardList.length}/${this.deckManager.MAX_DECK_SIZE})`, px + 20, py + 66);
 
-    const CW = 140, CH = 100, CGAP = 8;
-    const CCOLS = Math.floor((panelW - 40) / (CW + CGAP));
+    const CW = 220, CH = 150, CGAP = 14;
+    const CCOLS = Math.max(1, Math.floor((panelW - 40) / (CW + CGAP)));
     for (let i = 0; i < cardList.length; i++) {
       const def = this.deckManager.getCardDef(cardList[i]);
       if (!def) continue;
@@ -1621,72 +1717,87 @@ export class UI {
       const cx = px + 20 + col * (CW + CGAP);
       const cy = py + 76 + row * (CH + CGAP);
 
+      const rarCol = def.rarity === 'rare' ? PAL.RARE : (def.rarity === 'uncommon' ? PAL.UNCOMMON : PAL.COMMON);
       ctx.fillStyle = '#1a1a2e';
-      ctx.fillRect(cx, cy, CW, CH);
+      ctx.beginPath();
+      ctx.roundRect(cx, cy, CW, CH, 6);
+      ctx.fill();
       ctx.fillStyle = def.color || '#5577aa';
-      ctx.fillRect(cx, cy, CW, 3);
-      ctx.strokeStyle = def.color || '#334466';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(cx, cy, CW, CH);
+      ctx.fillRect(cx, cy, CW, 4);
+      ctx.strokeStyle = rarCol + '99';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.roundRect(cx, cy, CW, CH, 6);
+      ctx.stroke();
 
       const inHand = this.deckManager.hand.indexOf(cardList[i]) >= 0;
       if (inHand) {
-        ctx.fillStyle = '#44ff8833';
-        ctx.fillRect(cx, cy, CW, CH);
+        ctx.fillStyle = '#44ff8822';
+        ctx.beginPath();
+        ctx.roundRect(cx, cy, CW, CH, 6);
+        ctx.fill();
         ctx.fillStyle = '#44ff88';
-        ctx.font = 'bold 8px monospace';
+        ctx.font = 'bold 9px monospace';
         ctx.textAlign = 'right';
-        ctx.fillText('IN HAND', cx + CW - 4, cy + 12);
+        ctx.fillText('IN HAND', cx + CW - 6, cy + 14);
       }
 
       const lvl = this.deckManager.upgrades[cardList[i]] || 0;
       ctx.fillStyle = PAL.TEXT;
-      ctx.font = `bold 12px monospace`;
+      ctx.font = 'bold 16px monospace';
       ctx.textAlign = 'center';
-      ctx.fillText(def.name + (lvl > 0 ? '+'.repeat(lvl) : ''), cx + CW / 2, cy + 22);
-      ctx.fillStyle = '#888';
-      ctx.font = '10px monospace';
-      ctx.fillText(`${def.cost}AP | ${def.type}`, cx + CW / 2, cy + 37);
+      ctx.fillText(def.name + (lvl > 0 ? ' +' + lvl : ''), cx + CW / 2, cy + 28);
+      ctx.fillStyle = rarCol;
+      ctx.font = '12px monospace';
+      ctx.fillText((def.rarity || 'common').toUpperCase(), cx + CW / 2, cy + 44);
+      ctx.fillStyle = '#44aaff';
+      ctx.font = '13px monospace';
+      ctx.fillText(`${def.cost}AP · ${def.type}`, cx + CW / 2, cy + 62);
       ctx.fillStyle = def.tempoShift > 0 ? PAL.HOT : PAL.COLD;
-      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' T', cx + CW / 2, cy + 51);
+      ctx.fillText((def.tempoShift > 0 ? '+' : '') + def.tempoShift + ' Tempo', cx + CW / 2, cy + 78);
       ctx.fillStyle = '#ccc';
-      ctx.font = '11px monospace';
-      this._wrapText(ctx, def.desc, cx + 4, cy + 64, CW - 8, 13);
+      ctx.font = '12px monospace';
+      this._wrapText(ctx, def.desc, cx + 8, cy + 96, CW - 16, 15);
     }
 
     // Relics section
     const relicList = this.itemManager ? this.itemManager.equipped : [];
-    const relicStartY = py + 76 + Math.ceil(cardList.length / CCOLS) * (CH + CGAP) + 12;
+    const cardRowsH = Math.ceil(cardList.length / CCOLS) * (CH + CGAP);
+    const relicStartY = py + 76 + cardRowsH + 16;
     if (relicList.length > 0) {
       ctx.fillStyle = PAL.GOLD;
-      ctx.font = 'bold 14px monospace';
+      ctx.font = 'bold 15px monospace';
       ctx.textAlign = 'left';
       ctx.fillText(`RELICS (${relicList.length})`, px + 20, relicStartY);
 
-      const RW = 180, RH = 60, RGAP = 10;
-      const RCOLS = Math.floor((panelW - 40) / (RW + RGAP));
+      const RW = 240, RH = 80, RGAP = 12;
+      const RCOLS = Math.max(1, Math.floor((panelW - 40) / (RW + RGAP)));
       for (let i = 0; i < relicList.length; i++) {
         const def = ItemDefinitions[relicList[i]];
         if (!def) continue;
         const col = i % RCOLS, row = Math.floor(i / RCOLS);
         const rx = px + 20 + col * (RW + RGAP);
-        const ry = relicStartY + 10 + row * (RH + RGAP);
+        const ry = relicStartY + 12 + row * (RH + RGAP);
         const rarCol = def.rarity === 'rare' ? PAL.RARE : (def.rarity === 'uncommon' ? PAL.UNCOMMON : PAL.COMMON);
         ctx.fillStyle = '#1a1a2e';
-        ctx.fillRect(rx, ry, RW, RH);
+        ctx.beginPath();
+        ctx.roundRect(rx, ry, RW, RH, 6);
+        ctx.fill();
         ctx.strokeStyle = rarCol;
         ctx.lineWidth = 1.5;
-        ctx.strokeRect(rx, ry, RW, RH);
+        ctx.beginPath();
+        ctx.roundRect(rx, ry, RW, RH, 6);
+        ctx.stroke();
         ctx.fillStyle = PAL.TEXT;
-        ctx.font = 'bold 11px monospace';
+        ctx.font = 'bold 14px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(def.name, rx + RW / 2, ry + 18);
+        ctx.fillText(def.name, rx + RW / 2, ry + 22);
         ctx.fillStyle = rarCol;
-        ctx.font = '11px monospace';
-        ctx.fillText(def.rarity.toUpperCase(), rx + RW / 2, ry + 30);
+        ctx.font = '12px monospace';
+        ctx.fillText(def.rarity.toUpperCase(), rx + RW / 2, ry + 38);
         ctx.fillStyle = '#bbb';
-        ctx.font = '11px monospace';
-        this._wrapText(ctx, def.desc, rx + 4, ry + 44, RW - 8, 12);
+        ctx.font = '12px monospace';
+        this._wrapText(ctx, def.desc, rx + 8, ry + 54, RW - 16, 13);
       }
     }
 

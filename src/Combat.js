@@ -156,7 +156,7 @@ export class CombatManager {
     // Forbidden Surge: pure tempo + HP cost, no damage
     if (cardDef.id === 'forbidden_surge') {
       this.particles.spawnRing(player.x, player.y, 90, '#8800ff');
-      this.particles.spawnDamageNumber(player.x, player.y - 35, '+45 TEMPO!');
+      this.particles.spawnDamageNumber(player.x, player.y - 35, `+${cardDef.tempoShift} TEMPO!`);
       events.emit('PLAY_SOUND', 'crash');
       events.emit('CARD_PLAYED', { cardType: cardDef.type, cardColor: cardDef.color, cardName: cardDef.name });
       return true;
@@ -218,7 +218,7 @@ export class CombatManager {
     // Berserker's Oath: lose 2 HP, set oath stacks
     if (cardDef.berserkerOath) {
       player.takeDamage(2);
-      player.oathStacks = 3;
+      player.oathStacks = 5;
       player.oathComboWindow = true;
       this.particles.spawnRing(player.x, player.y, 80, '#ff3300');
       this.particles.spawnDamageNumber(player.x, player.y - 30, 'OATH!');

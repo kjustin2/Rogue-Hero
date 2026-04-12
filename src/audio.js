@@ -192,4 +192,15 @@ export class AudioSynthesizer {
     this._tone(440, 'sine', 0.1, 0.1);
     this._tone(660, 'sine', 0.15, 0.1, 0.05);
   }
+  victoryFanfare() {
+    // Rising triumphant chord arpeggio
+    const notes = [261.6, 329.6, 392, 523.3, 659.3, 783.9, 1046.5];
+    notes.forEach((freq, i) => {
+      this._tone(freq, 'sine', 0.18, 0.35, i * 0.07);
+    });
+    // Low bass thud
+    this._tone(65, 'sawtooth', 0.3, 0.4, 0.0);
+    // High shimmer
+    this._tone(2093, 'sine', 0.08, 0.6, 0.2);
+  }
 }
