@@ -122,8 +122,9 @@ export class AudioSynthesizer {
       const gain = this.ctx.createGain();
       osc.type = type || 'square';
       osc.frequency.value = freq;
+      const scaledVol = vol * this.masterVolume;
       gain.gain.setValueAtTime(0, this.ctx.currentTime);
-      gain.gain.linearRampToValueAtTime(vol, this.ctx.currentTime + (attack || 0.01));
+      gain.gain.linearRampToValueAtTime(scaledVol, this.ctx.currentTime + (attack || 0.01));
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
       osc.connect(gain);
       gain.connect(this.ctx.destination);
@@ -146,7 +147,7 @@ export class AudioSynthesizer {
       filter.frequency.value = freq || 1000;
       filter.Q.value = 0.5;
       const gain = this.ctx.createGain();
-      gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+      gain.gain.setValueAtTime(vol * this.masterVolume, this.ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
       src.connect(filter); filter.connect(gain); gain.connect(this.ctx.destination);
       src.start(); src.stop(this.ctx.currentTime + dur);
