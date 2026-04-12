@@ -417,8 +417,8 @@ export class Bruiser extends Enemy {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
       } else {
-        this.x += (dx / dist) * 110 * this.spdMult() * dt;
-        this.y += (dy / dist) * 110 * this.spdMult() * dt;
+        this.x += (dx / dist) * 180 * this.spdMult() * dt;
+        this.y += (dy / dist) * 180 * this.spdMult() * dt;
       }
     }
 
@@ -2351,7 +2351,7 @@ export class BerserkerEnemy extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const baseSpd = this.isBerserk ? 200 : 120;
+    const baseSpd = this.isBerserk ? 280 : 175;
     const spd = baseSpd * this.spdMult();
 
     if (this.state === 'idle' && dist < 670 && !player._phantomInkActive) this.state = 'chase';

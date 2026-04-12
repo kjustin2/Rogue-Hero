@@ -77,9 +77,9 @@ export const CardDefinitions = {
     desc: 'Stagger target 0.8s. -10 Tempo.'
   },
   blood_pact: {
-    id: 'blood_pact', name: 'Blood Pact', cost: 2, tempoShift: 18, rarity: 'rare',
-    damage: 22, range: 90, type: 'melee', color: '#ff2266',
-    desc: 'Costs 1 HP. Huge damage. +18 Tempo.',
+    id: 'blood_pact', name: 'Blood Pact', cost: 2, tempoShift: 22, rarity: 'rare',
+    damage: 45, range: 120, type: 'melee', color: '#ff2266',
+    desc: 'Costs 1 HP. Brutal damage. +22 Tempo.',
     bonusCard: true
   },
   iron_wall: {
@@ -233,9 +233,9 @@ export const CardDefinitions = {
     bonusCard: true
   },
   glass_cannon: {
-    id: 'glass_cannon', name: 'Glass Cannon', cost: 3, tempoShift: 22, rarity: 'rare',
-    damage: 60, range: 80, type: 'melee', color: '#ff0044',
-    desc: 'Massive dmg, costs 2 HP. +22 Tempo.',
+    id: 'glass_cannon', name: 'Glass Cannon', cost: 3, tempoShift: 28, rarity: 'rare',
+    damage: 110, range: 110, type: 'melee', color: '#ff0044',
+    desc: 'Costs 2 HP. Devastating blow. +28 Tempo.',
     bonusCard: true, selfDamage: 2
   },
   reaper: {
@@ -377,15 +377,15 @@ export const CardDefinitions = {
     bonusCard: true, markForDeath: true
   },
   berserkers_oath: {
-    id: 'berserkers_oath', name: "Berserker's Oath", cost: 3, tempoShift: 25, rarity: 'rare',
+    id: 'berserkers_oath', name: "Berserker's Oath", cost: 3, tempoShift: 35, rarity: 'rare',
     damage: 0, range: 100, type: 'utility', color: '#ff3300',
-    desc: 'Lose 2 HP. Next 3 attacks: free AP + infinite combo window. +25 Tempo.',
+    desc: 'Lose 2 HP. Next 3 attacks: free AP + infinite combo window. +35 Tempo.',
     bonusCard: true, berserkerOath: true
   },
   last_stand: {
-    id: 'last_stand', name: 'Last Stand', cost: 3, tempoShift: 30, rarity: 'rare',
-    damage: 55, range: 200, type: 'projectile', color: '#ff8800',
-    desc: 'Usable only at ≤2 HP. Massive AoE. Kills all → restore 2 HP. +30 Tempo.',
+    id: 'last_stand', name: 'Last Stand', cost: 3, tempoShift: 35, rarity: 'rare',
+    damage: 90, range: 250, type: 'projectile', color: '#ff8800',
+    desc: 'Usable only at ≤2 HP. Massive AoE. Kills all → restore 2 HP. +35 Tempo.',
     bonusCard: true, lastStand: true
   },
   mirror_strike: {
@@ -397,9 +397,9 @@ export const CardDefinitions = {
 
   // ── HIGH RISK / CHARACTER-SPECIFIC ────────────────────────────────
   deaths_bargain: {
-    id: 'deaths_bargain', name: "Death's Bargain", cost: 2, tempoShift: 22, rarity: 'rare',
-    damage: 70, range: 85, type: 'melee', color: '#cc0000',
-    desc: 'Costs 2 HP. Cannot use at ≤2 HP. 70 flat damage. +22 Tempo.',
+    id: 'deaths_bargain', name: "Death's Bargain", cost: 2, tempoShift: 30, rarity: 'rare',
+    damage: 130, range: 120, type: 'melee', color: '#cc0000',
+    desc: 'Costs 2 HP. Cannot use at ≤2 HP. 130 flat damage. +30 Tempo.',
     bonusCard: true, deathsBargain: true
   },
   resonant_pulse: {
@@ -687,27 +687,27 @@ export const CardDefinitions = {
   // ── CURSED CARDS ──────────────────────────────────────────────────
   // Cursed cards are powerful but carry a cost beyond AP.
   soul_siphon: {
-    id: 'soul_siphon', name: 'Soul Siphon', cost: 0, tempoShift: 25, rarity: 'rare',
-    damage: 40, range: 90, type: 'melee', color: '#ff0044',
-    desc: 'CURSED: Free AP — but drains 2 HP. Devastating melee. +25 Tempo.',
+    id: 'soul_siphon', name: 'Soul Siphon', cost: 0, tempoShift: 35, rarity: 'rare',
+    damage: 80, range: 110, type: 'melee', color: '#ff0044',
+    desc: 'CURSED: Free AP — but drains 2 HP. Devastating melee. +35 Tempo.',
     cursed: true, hpCost: 2, bonusCard: true
   },
   void_hex: {
     id: 'void_hex', name: 'Void Hex', cost: 3, tempoShift: -45, rarity: 'rare',
-    damage: 42, range: 180, type: 'projectile', color: '#440088',
+    damage: 75, range: 220, type: 'projectile', color: '#440088',
     desc: 'CURSED: Massive AoE — Tempo plunges -45. Power demands a price.',
     cursed: true, bonusCard: true
   },
   cursed_spiral: {
-    id: 'cursed_spiral', name: 'Cursed Spiral', cost: 2, tempoShift: 18, rarity: 'rare',
-    damage: 18, range: 150, type: 'cleave', color: '#880000',
+    id: 'cursed_spiral', name: 'Cursed Spiral', cost: 2, tempoShift: 22, rarity: 'rare',
+    damage: 35, range: 200, type: 'cleave', color: '#880000',
     desc: 'CURSED: Cleaves ALL nearby. You take 1 HP per enemy struck.',
     cursed: true, selfDamagePerHit: 1, bonusCard: true
   },
   forbidden_surge: {
-    id: 'forbidden_surge', name: 'Forbidden Surge', cost: 1, tempoShift: 45, rarity: 'rare',
+    id: 'forbidden_surge', name: 'Forbidden Surge', cost: 1, tempoShift: 60, rarity: 'rare',
     damage: 0, range: 100, type: 'utility', color: '#8800ff',
-    desc: 'CURSED: Spike Tempo +45 instantly. Costs 3 HP. Use wisely.',
+    desc: 'CURSED: Spike Tempo +60 instantly. Costs 3 HP. Use wisely.',
     cursed: true, hpCost: 3, bonusCard: true
   },
 };
