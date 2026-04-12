@@ -3272,8 +3272,8 @@ function render() {
 
   // ── POST-FRAME PASSES ─────────────────────────────────────────
   // (bloom removed — ctx.filter blur was CPU-rasterized, costing 4-8ms/frame)
-  // Chromatic aberration edge flash (all game states)
-  renderer.drawCAFlash();
+  // Chromatic aberration edge flash (combat only)
+  if (gameState === 'playing' || gameState === 'paused') renderer.drawCAFlash();
   // Scanlines overlay (subtle retro texture on all screens)
   renderer.drawScanlines();
   // Fade-to/from-black overlay
