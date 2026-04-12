@@ -3827,21 +3827,33 @@ function renderLootBoxOpen(ctx, t) {
     // Preview circle
     const prevR = 40;
     const prevX = cx, prevY = cardY + 120;
+    ctx.save();
     if (result.category === 'bodyColor') {
       if (result.animated && result.animFn) {
         result.animFn(ctx, prevX, prevY, prevR, t);
       } else if (result.value) {
-        ctx.save();
-        ctx.shadowColor = result.value; ctx.shadowBlur = 20;
+        // Outer glow ring (no shadowBlur)
+        ctx.fillStyle = result.value + '44';
+        ctx.beginPath(); ctx.arc(prevX, prevY, prevR + 6, 0, Math.PI * 2); ctx.fill();
         ctx.fillStyle = result.value;
         ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI * 2); ctx.fill();
-        ctx.restore();
       }
-    } else if (result.category === 'shape' && result.value) {
+    } else if (result.category === 'outlineColor') {
+      // Dark base + colored stroke ring to show it's an outline cosmetic
+      ctx.fillStyle = '#1a1a2e';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI * 2); ctx.fill();
+      if (result.animated && result.animFn) {
+        result.animFn(ctx, prevX, prevY, prevR, t);
+      } else {
+        ctx.strokeStyle = result.value || '#ffffff';
+        ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else if (result.category === 'shape') {
       ctx.fillStyle = '#44dd88';
       if (result.animated && result.animFn) {
         result.animFn(ctx, prevX, prevY, prevR, t, '#44dd88');
-      } else {
+      } else if (result.value) {
         drawPlayerShape(ctx, prevX, prevY, prevR, result.value);
         ctx.fill();
       }
@@ -3849,14 +3861,114 @@ function renderLootBoxOpen(ctx, t) {
       ctx.fillStyle = '#44dd88';
       ctx.beginPath(); ctx.arc(prevX, prevY, prevR * 0.7, 0, Math.PI * 2); ctx.fill();
       drawPlayerAura(ctx, prevX, prevY, prevR * 0.7, result.value, t, 50);
-    } else {
-      const previewCol = result.value && result.value.startsWith('#') ? result.value : '#44dd88';
+    } else if (result.category === 'trail') {
+      // Dark bg + animated comet-tail to represent a movement trail
+      ctx.fillStyle = '#0d0d14';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR + 4, 0, Math.PI * 2); ctx.fill();
+      const trailCol = (result.animated && result.getColor) ? result.getColor(t) : result.value;
+      const trailAngle = t * 0.8 + Math.PI;
+      for (let ti = 7; ti >= 0; ti--) {
+        const tailFrac = ti / 8;
+        const tailDist = tailFrac * prevR * 0.9;
+        ctx.save();
+        ctx.globalAlpha = (1 - tailFrac) * 0.75;
+        ctx.fillStyle = trailCol;
+        ctx.beginPath();
+        ctx.arc(
+          prevX + Math.cos(trailAngle) * tailDist,
+          prevY + Math.sin(trailAngle) * tailDist * 0.35,
+          prevR * 0.48 * (1 - tailFrac * 0.55),
+          0, Math.PI * 2
+        );
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (result.category === 'flash') {
+      // Dark bg + starburst explosion in the flash color
+      ctx.fillStyle = '#0d0d14';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR + 4, 0, Math.PI * 2); ctx.fill();
+      const flashCol = (result.animated && result.getFlashColor) ? result.getFlashColor() : result.value;
+      const flashPulse = (Math.sin(t * 4) + 1) * 0.5;
+      ctx.fillStyle = flashCol;
+      ctx.beginPath(); ctx.arc(prevX, prevY, 8 + flashPulse * 4, 0, Math.PI * 2); ctx.fill();
+      for (let ri = 0; ri < 8; ri++) {
+        const ra = (ri / 8) * Math.PI * 2 + t * 0.5;
+        const rLen = prevR * (0.52 + flashPulse * 0.28);
+        ctx.save();
+        ctx.globalAlpha = 0.85 - ri * 0.04;
+        ctx.strokeStyle = flashCol;
+        ctx.lineWidth = ri < 4 ? 2.5 : 1.5;
+        ctx.beginPath();
+        ctx.moveTo(prevX + Math.cos(ra) * 10, prevY + Math.sin(ra) * 10);
+        ctx.lineTo(prevX + Math.cos(ra) * rLen, prevY + Math.sin(ra) * rLen);
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else if (result.category === 'deathBurst') {
+      // Dark bg + radiating particles using burstColors
+      ctx.fillStyle = '#0d0d14';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR + 4, 0, Math.PI * 2); ctx.fill();
+      const burstColors = result.burstColors || [result.value];
+      const pCount = Math.min(burstColors.length * 2, 16);
+      for (let bi = 0; bi < pCount; bi++) {
+        const ba = (bi / pCount) * Math.PI * 2 + t * 0.4;
+        const bDist = prevR * (0.28 + 0.52 * ((bi * 0.618) % 1));
+        const bCol = burstColors[bi % burstColors.length];
+        ctx.save();
+        ctx.globalAlpha = 0.6 + 0.4 * Math.sin(t * 2 + bi);
+        ctx.fillStyle = bCol;
+        ctx.beginPath();
+        ctx.arc(
+          prevX + Math.cos(ba) * bDist, prevY + Math.sin(ba) * bDist,
+          3.5 + 1.5 * Math.sin(t * 3 + bi * 1.4), 0, Math.PI * 2
+        );
+        ctx.fill();
+        ctx.restore();
+      }
+    } else if (result.category === 'killEffect') {
+      // Dark bg + pulsing ring + burst dots showing a kill pop
+      ctx.fillStyle = '#0d0d14';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR + 4, 0, Math.PI * 2); ctx.fill();
+      const killColors = {
+        simple_pop: '#ffcc44', spark_burst: '#ffff44', coin_shower: '#ffdd00',
+        freeze_frame: '#88ddff', skull_pop: '#eeeeee', kill_supernova: '#ff8800', rift_tear: '#aa44ff'
+      };
+      const kCol = killColors[result.value] || '#ffffff';
+      const killPulse = (Math.sin(t * 3) + 1) * 0.5;
       ctx.save();
-      ctx.shadowColor = previewCol; ctx.shadowBlur = 20;
+      ctx.globalAlpha = 0.9 - killPulse * 0.3;
+      ctx.strokeStyle = kCol;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(prevX, prevY, 10 + killPulse * prevR * 0.65, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+      for (let ki = 0; ki < 6; ki++) {
+        const ka = (ki / 6) * Math.PI * 2 + t * 1.2;
+        const kd = 12 + killPulse * prevR * 0.55;
+        ctx.save();
+        ctx.globalAlpha = 0.65 + 0.35 * Math.sin(t * 2 + ki);
+        ctx.fillStyle = kCol;
+        ctx.beginPath(); ctx.arc(prevX + Math.cos(ka) * kd, prevY + Math.sin(ka) * kd, 3, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    } else if (result.category === 'title') {
+      // Dark bg + title text in its color
+      ctx.fillStyle = '#0d0d14';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR + 4, 0, Math.PI * 2); ctx.fill();
+      const titleCol = result.animated ? getPrismaticColor(t, 100, 65) : (result.color || '#ffffff');
+      ctx.fillStyle = titleCol;
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(result.value || result.name, prevX, prevY);
+    } else {
+      // Generic fallback
+      const previewCol = (result.value && typeof result.value === 'string' && result.value.startsWith('#')) ? result.value : '#44dd88';
+      ctx.fillStyle = previewCol + '44';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR + 4, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = previewCol;
       ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI * 2); ctx.fill();
-      ctx.restore();
     }
+    ctx.restore();
 
     // Name
     ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px monospace'; ctx.textAlign = 'center';

@@ -1148,13 +1148,14 @@ export class UI {
       // Border — double-stroke approach (outer faint + inner solid) instead of shadowBlur
       if (isHovered || arrivalGlow > 0) {
         const glowA = isHovered ? 0.55 : 0.45 * arrivalGlow;
+        ctx.save();
+        ctx.globalAlpha *= glowA;
         ctx.strokeStyle = isHovered ? rarCol : (def.color || PAL.GOLD);
         ctx.lineWidth = isHovered ? 8 : 10;
-        ctx.globalAlpha = glowA * ctx.globalAlpha;
         ctx.beginPath();
         ctx.roundRect(0, 0, CARD_W, CARD_H, 14);
         ctx.stroke();
-        ctx.globalAlpha = Math.min(1, ctx.globalAlpha / glowA);
+        ctx.restore();
       }
       ctx.strokeStyle = rarCol;
       ctx.lineWidth = isHovered ? 3.5 : 2.5;
