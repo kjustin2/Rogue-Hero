@@ -1,5 +1,6 @@
 import { Entity } from './Entity.js';
 import { events } from './EventBus.js';
+import { drawPlayerShape, drawPlayerAura } from './Cosmetics.js';
 
 export class Player extends Entity {
   constructor(x, y, hp, maxHp, baseSpeed) {
@@ -131,11 +132,24 @@ export class Player extends Entity {
       this.perfectDodgeWindow -= dt;
     }
 
-    // Trail particles when Hot/Critical and moving
+    // Trail particles — always when cosmetic trail equipped, else only at Hot/Critical
     this.trailTimer -= dt;
-    if (tempo.value >= 70 && (this.vx !== 0 || this.vy !== 0) && this.trailTimer <= 0) {
+    const _teq = window._equippedCosmetics;
+    const _hasTrailCosmetic = _teq && _teq.trailDef;
+    const _isMoving = this.vx !== 0 || this.vy !== 0;
+    if ((_hasTrailCosmetic ? _isMoving : (tempo.value >= 70 && _isMoving)) && this.trailTimer <= 0) {
       this.trailTimer = 0.04;
-      events.emit('PLAYER_TRAIL', { x: this.x, y: this.y, color: tempo.stateColor() });
+      let trailColor;
+      if (_teq && _teq.trailDef) {
+        if (_teq.trailDef.id === 'trail_prism' && _teq.trailDef.getColor) {
+          trailColor = _teq.trailDef.getColor(performance.now() / 1000);
+        } else {
+          trailColor = _teq.trailDef.value || tempo.stateColor();
+        }
+      } else {
+        trailColor = tempo.stateColor();
+      }
+      events.emit('PLAYER_TRAIL', { x: this.x, y: this.y, color: trailColor });
     }
 
     // Room clamp — cancel velocity in constrained direction to prevent wall-sliding
@@ -164,7 +178,7 @@ export class Player extends Entity {
   }
 
   takeDamage(amount) {
-    if (this.dodging) return;
+    if (!this.alive || this.dodging) return;
     // Frost passive: 30% damage reduction in Cold
     if (this.classPassives?.coldDamageReduction && this.hp > 0) {
       // This will be checked against tempo value in main.js
@@ -178,50 +192,94 @@ export class Player extends Entity {
 
   draw(ctx, tempo) {
     if (!this.alive) return;
-    
-    // Dashing trail
+    const eq = window._equippedCosmetics;
+    const t = performance.now() / 1000;
+
+    // Dashing trail ghost
     if (this.dodging) {
+      const trailCol = eq?.trailDef?.value || 'rgba(51,170,255,0.4)';
       ctx.beginPath();
-      ctx.arc(this.x - this.vx * 0.05, this.y - this.vy * 0.05, this.r - 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(51, 170, 255, 0.4)';
+      ctx.arc(this.x - this.vx * 0.05, this.y - this.vy * 0.05, this.r - 2, 0, Math.PI*2);
+      ctx.fillStyle = trailCol;
       ctx.fill();
     }
 
     // Drop shadow
     ctx.beginPath();
-    ctx.ellipse(this.x, this.y + this.r * 0.6, this.r * 1.3, this.r * 0.4, 0, 0, Math.PI * 2);
+    ctx.ellipse(this.x, this.y + this.r*0.6, this.r*1.3, this.r*0.4, 0, 0, Math.PI*2);
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.fill();
 
-    // Main body
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r, 0, Math.PI * 2);
-    const col = this.hitFlash > 0 ? '#ffffff' : (this.dodging ? 'rgba(100,180,255,0.8)' : tempo.stateColor());
-    ctx.fillStyle = col;
-    ctx.fill();
+    // Aura (drawn below body)
+    if (eq?.auraDef) {
+      drawPlayerAura(ctx, this.x, this.y, this.r, eq.auraDef.value, t, tempo.value);
+    }
 
-    // Inner highlight
-    ctx.beginPath();
-    ctx.arc(this.x - 3, this.y - 3, this.r * 0.35, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.3)';
-    ctx.fill();
+    // Resolve fill color and draw body
+    const shapeName = eq?.shapeDef?.value || 'circle';
+    let fillColor;
+    if (this.hitFlash > 0) {
+      if (eq?.flashDef?.id === 'flash_prism' && eq.flashDef.getFlashColor) {
+        fillColor = eq.flashDef.getFlashColor();
+      } else {
+        fillColor = eq?.flashDef?.value || '#ffffff';
+      }
+    } else if (this.dodging) {
+      fillColor = 'rgba(100,180,255,0.8)';
+    } else if (eq?.bodyDef?.animated && eq.bodyDef.animFn) {
+      // Super Legendary body animFn draws itself
+      eq.bodyDef.animFn(ctx, this.x, this.y, this.r, t);
+      fillColor = null;
+    } else {
+      fillColor = eq?.bodyDef?.value || tempo.stateColor();
+    }
+
+    if (fillColor !== null) {
+      if (eq?.shapeDef?.animated && eq.shapeDef.animFn) {
+        eq.shapeDef.animFn(ctx, this.x, this.y, this.r, t, fillColor);
+      } else {
+        ctx.fillStyle = fillColor;
+        drawPlayerShape(ctx, this.x, this.y, this.r, shapeName);
+        ctx.fill();
+      }
+    }
+
+    // Outline cosmetic
+    if (eq?.outlineDef) {
+      if (eq.outlineDef.animated && eq.outlineDef.animFn) {
+        eq.outlineDef.animFn(ctx, this.x, this.y, this.r, t);
+      } else {
+        ctx.strokeStyle = eq.outlineDef.value;
+        ctx.lineWidth = 1.5;
+        drawPlayerShape(ctx, this.x, this.y, this.r, shapeName);
+        ctx.stroke();
+      }
+    }
+
+    // Inner highlight (skip if Super Legendary body)
+    if (!eq?.bodyDef?.animated) {
+      ctx.beginPath();
+      ctx.arc(this.x - 3, this.y - 3, this.r*0.35, 0, Math.PI*2);
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.fill();
+    }
 
     // Direction indicator
     if (this.vx || this.vy) {
       const angle = Math.atan2(this.vy, this.vx);
       ctx.beginPath();
-      ctx.moveTo(this.x + Math.cos(angle) * (this.r + 4), this.y + Math.sin(angle) * (this.r + 4));
-      ctx.lineTo(this.x + Math.cos(angle - 0.5) * (this.r - 2), this.y + Math.sin(angle - 0.5) * (this.r - 2));
-      ctx.lineTo(this.x + Math.cos(angle + 0.5) * (this.r - 2), this.y + Math.sin(angle + 0.5) * (this.r - 2));
+      ctx.moveTo(this.x + Math.cos(angle)*(this.r+4), this.y + Math.sin(angle)*(this.r+4));
+      ctx.lineTo(this.x + Math.cos(angle-0.5)*(this.r-2), this.y + Math.sin(angle-0.5)*(this.r-2));
+      ctx.lineTo(this.x + Math.cos(angle+0.5)*(this.r-2), this.y + Math.sin(angle+0.5)*(this.r-2));
       ctx.closePath();
       ctx.fillStyle = 'rgba(255,255,255,0.5)';
       ctx.fill();
     }
 
-    // Critical state glow
-    if (tempo.value >= 90) {
+    // Critical state glow (reactive aura handles this itself)
+    if (tempo.value >= 90 && eq?.auraDef?.value !== 'reactive') {
       ctx.beginPath();
-      ctx.arc(this.x, this.y, this.r + 5, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, this.r+5, 0, Math.PI*2);
       ctx.strokeStyle = 'rgba(255,50,50,0.6)';
       ctx.lineWidth = 2;
       ctx.stroke();

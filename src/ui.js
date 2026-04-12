@@ -1,4 +1,5 @@
 import { CardDefinitions } from './DeckManager.js';
+import { CosmeticById, CosmeticDefinitions, BOX_TIERS, RARITY_COLORS, RARITY_LABELS, CATEGORY_LABELS, drawPlayerShape, drawPlayerAura, getPrismaticColor } from './Cosmetics.js';
 
 // ── Color Palette ────────────────────────────────────────────────
 export const PAL = {
@@ -31,6 +32,9 @@ export class UI {
     this.selectedCardSlot = 0;
     this.handBoxes = [];
     this.prepBoxes = [];
+    this.statsReturnBox = null;
+    this.cosmeticShopBoxes = [];
+    this.cosmeticPanelBoxes = [];
     this.itemManager = null;
     this.enemies = null;
     this.runStats = null;
@@ -781,14 +785,6 @@ export class UI {
       this.prepBoxes.push({ x, y, w: CARD_W, h: CARD_H, cardId });
     }
 
-    // Tooltip: show enlarged card preview on hover
-    const mx = this._mouseX, my = this._mouseY;
-    for (const b of this.prepBoxes) {
-      if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
-        this._drawCardTooltip(ctx, b.cardId, mx, my);
-        break;
-      }
-    }
   }
 
   _drawCardTooltip(ctx, cardId, mx, my) {
@@ -1307,29 +1303,50 @@ export class UI {
       }
     }
 
-    if (waitingForInput) {
-      ctx.fillStyle = '#333';
-      ctx.font = '14px monospace';
+    // Unlocks section rendered first (behind button) — position at very bottom
+    const unlockRows = (this.newUnlocks && this.newUnlocks.length > 0) ? this.newUnlocks.length : 0;
+    if (unlockRows > 0) {
+      const uy = this.height - 20 - unlockRows * 22;
       ctx.textAlign = 'center';
-      ctx.fillText('...', this.width / 2, this.height - 36);
-    } else {
-      ctx.fillStyle = '#aabbcc';
-      ctx.font = 'bold 20px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('[ PRESS ENTER TO CONTINUE ]', this.width / 2, this.height - 36);
-    }
-
-    // Show unlocks from this run
-    if (this.newUnlocks && this.newUnlocks.length > 0) {
-      const uy = this.height - 36 - this.newUnlocks.length * 22 - 10;
       ctx.fillStyle = PAL.GOLD;
       ctx.font = 'bold 13px monospace';
-      ctx.fillText('UNLOCKED THIS RUN:', this.width / 2, uy - 4);
+      ctx.fillText('UNLOCKED THIS RUN:', this.width / 2, uy - 18);
       for (let i = 0; i < this.newUnlocks.length; i++) {
         ctx.fillStyle = PAL.FLOWING;
         ctx.font = '12px monospace';
-        ctx.fillText(this.newUnlocks[i], this.width / 2, uy + 18 + i * 22);
+        ctx.fillText(this.newUnlocks[i], this.width / 2, uy + i * 22);
       }
+    }
+
+    // Button drawn last so it appears above unlocks; position it above the unlock strip
+    const unlockReserved = unlockRows > 0 ? (unlockRows * 22 + 44) : 0;
+    const btnW = Math.min(400, this.width - 80);
+    const btnH = 56;
+    const btnX = this.width / 2 - btnW / 2;
+    const btnY = this.height - unlockReserved - btnH - 24;
+
+    if (waitingForInput) {
+      this.statsReturnBox = null;
+      ctx.fillStyle = '#555';
+      ctx.font = '16px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Please wait...', this.width / 2, btnY + 34);
+    } else {
+      this.statsReturnBox = { x: btnX, y: btnY, w: btnW, h: btnH };
+      // Bright pulsing background so it's unmissable
+      const pulse = 0.75 + 0.25 * Math.sin(Date.now() / 300);
+      ctx.fillStyle = `rgba(20,80,160,${pulse})`;
+      ctx.fillRect(btnX, btnY, btnW, btnH);
+      ctx.strokeStyle = `rgba(100,200,255,${pulse})`;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(btnX, btnY, btnW, btnH);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 22px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('▶  RETURN TO MENU', this.width / 2, btnY + 34);
+      ctx.fillStyle = 'rgba(150,200,255,0.6)';
+      ctx.font = '11px monospace';
+      ctx.fillText('click here  ·  or press ENTER / SPACE', this.width / 2, btnY + 50);
     }
   }
 
@@ -1571,3 +1588,300 @@ export class UI {
 function require_itemDefs() {
   return { ItemDefinitions: window._itemDefs || {} };
 }
+
+// ── RARITY sort order (best first)
+const _RARITY_ORDER_REV = ['superleg','legendary','rare','uncommon','common'];
+
+UI.prototype.drawCosmeticShop = function(ctx, meta, t) {
+  // Background
+  const bg = ctx.createLinearGradient(0, 0, 0, this.height);
+  bg.addColorStop(0, '#070712'); bg.addColorStop(1, '#0c0a1e');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, this.width, this.height);
+
+  // Title
+  ctx.save();
+  ctx.shadowColor = getPrismaticColor(t, 80, 60); ctx.shadowBlur = 30;
+  ctx.fillStyle = getPrismaticColor(t, 70, 80);
+  ctx.font = 'bold 36px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('★  COSMETICS SHOP  ★', this.width/2, 52);
+  ctx.restore();
+
+  // Gold
+  ctx.fillStyle = PAL.GOLD; ctx.font = 'bold 20px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(`${meta.getGold()} Gold`, this.width/2, 84);
+
+  // Box stats
+  const owned = meta.getOwned();
+  ctx.fillStyle = PAL.MUTED; ctx.font = '13px monospace';
+  ctx.fillText(`Owned: ${owned.length} / ${CosmeticDefinitions.length}  ·  Boxes opened: ${meta._ensureCosmetics().totalBoxesOpened||0}`, this.width/2, 106);
+
+  this.cosmeticShopBoxes = [];
+
+  // Box buttons — 2×2 grid
+  const tiers = ['bronze','silver','gold','prismatic'];
+  const BW = Math.min(280, (this.width-80)/2);
+  const BH = 150;
+  const gap = 20;
+  const gridW = BW*2+gap;
+  const startX = (this.width-gridW)/2;
+  const startY = 130;
+
+  for (let i = 0; i < tiers.length; i++) {
+    const tier = tiers[i];
+    const info = BOX_TIERS[tier];
+    const col = i%2, row = Math.floor(i/2);
+    const bx = startX + col*(BW+gap);
+    const by = startY + row*(BH+gap);
+    const canAfford = meta.getGold() >= info.cost;
+
+    // Background
+    ctx.fillStyle = canAfford ? '#111828' : '#0a0a12';
+    ctx.beginPath(); ctx.roundRect(bx, by, BW, BH, 10); ctx.fill();
+    ctx.strokeStyle = canAfford ? info.glowColor : '#333344'; ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Box icon
+    if (tier === 'prismatic') {
+      ctx.strokeStyle = getPrismaticColor(t, 100, 65); ctx.lineWidth = 2;
+    } else {
+      ctx.strokeStyle = info.color; ctx.lineWidth = 2;
+    }
+    ctx.fillStyle = info.color + '44';
+    ctx.fillRect(bx+18, by+14, 40, 40);
+    ctx.strokeRect(bx+18, by+14, 40, 40);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
+    ctx.fillText('BOX', bx+28, by+38);
+
+    // Tier name
+    ctx.fillStyle = tier === 'prismatic' ? getPrismaticColor(t, 90, 75) : info.glowColor;
+    ctx.font = 'bold 18px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(info.label, bx+70, by+32);
+
+    // Cost
+    ctx.fillStyle = canAfford ? PAL.GOLD : '#555566'; ctx.font = 'bold 15px monospace';
+    ctx.fillText(`${info.cost} Gold`, bx+70, by+52);
+
+    // Odds
+    ctx.fillStyle = PAL.MUTED; ctx.font = '11px monospace';
+    const w = _getTierWeightLine(tier);
+    ctx.fillText(w, bx+18, by+72);
+
+    // Buy button
+    const btnX = bx+18, btnY = by+BH-44, btnW = BW-36, btnH = 32;
+    ctx.fillStyle = canAfford ? '#1a3a1a' : '#111111';
+    ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 6); ctx.fill();
+    ctx.strokeStyle = canAfford ? '#44ff88' : '#333'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = canAfford ? '#44ff88' : '#444455'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(canAfford ? 'OPEN BOX' : 'Need more gold', bx+BW/2, btnY+21);
+    if (canAfford) this.cosmeticShopBoxes.push({ x:btnX, y:btnY, w:btnW, h:btnH, action:'buy_box', tier });
+  }
+
+  // Back button
+  const backW=160, backH=40, backX=(this.width-backW)/2, backY=startY+2*(BH+gap)+20;
+  ctx.fillStyle = '#1a1a2a';
+  ctx.beginPath(); ctx.roundRect(backX, backY, backW, backH, 8); ctx.fill();
+  ctx.strokeStyle = '#445566'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle = PAL.MUTED; ctx.font='bold 15px monospace'; ctx.textAlign='center';
+  ctx.fillText('← Back', this.width/2, backY+26);
+  this.cosmeticShopBoxes.push({ x:backX, y:backY, w:backW, h:backH, action:'back' });
+};
+
+function _getTierWeightLine(tier) {
+  const w = { bronze:'C:60% U:28% R:10% L:2% SL:0.5%', silver:'C:30% U:40% R:24% L:5% SL:1%', gold:'U:20% R:55% L:23% SL:2%', prismatic:'R:30% L:60% SL:10%' };
+  return w[tier] || '';
+}
+
+// ── COSMETIC PANEL ──────────────────────────────────────────────────────────────
+
+UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
+  const { Characters } = window._charData || {};
+  const ch = Characters && Characters[charId];
+
+  // Background
+  ctx.fillStyle = '#07070f'; ctx.fillRect(0, 0, this.width, this.height);
+
+  // Header
+  const charColor = ch ? ch.color : '#aaaacc';
+  ctx.fillStyle = charColor; ctx.font = 'bold 28px monospace'; ctx.textAlign = 'center';
+  ctx.fillText(`Customize: ${ch?.name || charId}`, this.width/2, 42);
+  ctx.fillStyle = PAL.MUTED; ctx.font = '13px monospace';
+  ctx.fillText('Click any owned cosmetic to equip it  ·  Click again to unequip', this.width/2, 64);
+
+  this.cosmeticPanelBoxes = [];
+
+  // Category tabs
+  const cats = Object.keys(CATEGORY_LABELS);
+  const tabW = Math.min(120, (this.width-40)/cats.length);
+  const tabH = 34;
+  const tabsX = (this.width - cats.length*tabW)/2;
+  const tabsY = 78;
+  for (let i = 0; i < cats.length; i++) {
+    const cat = cats[i];
+    const tx = tabsX + i*tabW;
+    const isActive = cat === activeTab;
+    ctx.fillStyle = isActive ? '#1a2a3a' : '#0d0d18';
+    ctx.fillRect(tx, tabsY, tabW-2, tabH);
+    ctx.strokeStyle = isActive ? charColor : '#222233'; ctx.lineWidth = isActive?2:1;
+    ctx.strokeRect(tx, tabsY, tabW-2, tabH);
+    ctx.fillStyle = isActive ? charColor : PAL.MUTED;
+    ctx.font = isActive ? 'bold 11px monospace' : '11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(CATEGORY_LABELS[cat], tx+tabW/2-1, tabsY+21);
+    this.cosmeticPanelBoxes.push({ x:tx, y:tabsY, w:tabW-2, h:tabH, action:'tab', tab:cat });
+  }
+
+  const contentY = tabsY + tabH + 12;
+  const equipped = meta.getEquipped(charId);
+
+  // Preview panel — right side
+  const prevW = 200, prevH = this.height - contentY - 16;
+  const prevX = this.width - prevW - 16;
+  const prevY = contentY;
+  ctx.fillStyle = '#0f0f1c';
+  ctx.beginPath(); ctx.roundRect(prevX, prevY, prevW, prevH, 10); ctx.fill();
+  ctx.strokeStyle = charColor + '44'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle = charColor; ctx.font='bold 13px monospace'; ctx.textAlign='center';
+  ctx.fillText('PREVIEW', prevX+prevW/2, prevY+20);
+
+  // Draw preview player
+  const pCX = prevX+prevW/2, pCY = prevY+80;
+  const pR = 28;
+  const eq = meta.getEquipped(charId);
+  const bodyDef = CosmeticById[eq.bodyColor];
+  const outlineDef = CosmeticById[eq.outlineColor];
+  const shapeDef = CosmeticById[eq.shape];
+  const auraDef = CosmeticById[eq.aura];
+  const shapeName = shapeDef?.value || 'circle';
+
+  if (auraDef) drawPlayerAura(ctx, pCX, pCY, pR, auraDef.value, t, 50);
+
+  if (bodyDef?.animated && bodyDef.animFn) {
+    bodyDef.animFn(ctx, pCX, pCY, pR, t);
+  } else {
+    const fillCol = bodyDef?.value || charColor;
+    if (shapeDef?.animated && shapeDef.animFn) {
+      shapeDef.animFn(ctx, pCX, pCY, pR, t, fillCol);
+    } else {
+      ctx.fillStyle = fillCol;
+      drawPlayerShape(ctx, pCX, pCY, pR, shapeName);
+      ctx.fill();
+    }
+  }
+  if (outlineDef) {
+    if (outlineDef.animated && outlineDef.animFn) {
+      outlineDef.animFn(ctx, pCX, pCY, pR, t);
+    } else {
+      ctx.strokeStyle = outlineDef.value; ctx.lineWidth=1.5;
+      drawPlayerShape(ctx, pCX, pCY, pR, shapeName); ctx.stroke();
+    }
+  }
+  ctx.beginPath(); ctx.arc(pCX-2, pCY-2, pR*0.3, 0, Math.PI*2);
+  ctx.fillStyle='rgba(255,255,255,0.25)'; ctx.fill();
+
+  // Equipped slots list in preview
+  let slotY = prevY+130;
+  ctx.textAlign='left';
+  for (const cat of cats) {
+    const eqId = eq[cat];
+    const eDef = CosmeticById[eqId];
+    ctx.fillStyle = PAL.MUTED; ctx.font='10px monospace';
+    ctx.fillText(CATEGORY_LABELS[cat]+':', prevX+10, slotY);
+    ctx.fillStyle = eDef ? (RARITY_COLORS[eDef.rarity]||'#fff') : '#333344';
+    ctx.font = eDef ? 'bold 10px monospace' : '10px monospace';
+    ctx.fillText(eDef ? eDef.name : 'None', prevX+10, slotY+13);
+    slotY += 30;
+  }
+
+  // Grid of owned items in active tab
+  const gridX = 16, gridW = prevX - 32;
+  const owned = meta.getOwned();
+  const inCat = owned
+    .map(id => CosmeticById[id])
+    .filter(c => c && c.category === activeTab)
+    .sort((a,b) => _RARITY_ORDER_REV.indexOf(a.rarity) - _RARITY_ORDER_REV.indexOf(b.rarity));
+
+  const IW=140, IH=54, IGAP=8;
+  const cols = Math.max(1, Math.floor((gridW+IGAP)/(IW+IGAP)));
+  const equippedId = eq[activeTab];
+
+  if (inCat.length === 0) {
+    ctx.fillStyle = PAL.MUTED; ctx.font='14px monospace'; ctx.textAlign='center';
+    ctx.fillText('No owned cosmetics in this category.', gridX+gridW/2, contentY+60);
+    ctx.fillText('Open boxes in the Cosmetics Shop!', gridX+gridW/2, contentY+82);
+  }
+
+  for (let ii = 0; ii < inCat.length; ii++) {
+    const cDef = inCat[ii];
+    const col = ii%cols, row = Math.floor(ii/cols);
+    const ix = gridX + col*(IW+IGAP);
+    const iy = contentY + row*(IH+IGAP);
+    if (iy + IH > this.height - 16) break;
+
+    const isEquipped = cDef.id === equippedId;
+    const rarCol = RARITY_COLORS[cDef.rarity] || '#888';
+
+    ctx.fillStyle = isEquipped ? '#1a2a1a' : '#0f0f1c';
+    ctx.beginPath(); ctx.roundRect(ix, iy, IW, IH, 6); ctx.fill();
+    ctx.strokeStyle = isEquipped ? '#44ff88' : rarCol+'66'; ctx.lineWidth = isEquipped?2:1;
+    ctx.stroke();
+    // Top rarity bar
+    ctx.fillStyle = rarCol; ctx.fillRect(ix+2, iy+2, IW-4, 3);
+
+    // Mini cosmetic swatch
+    const swX=ix+10, swY=iy+IH/2, swR=14;
+    if (cDef.category==='bodyColor') {
+      if (cDef.animated && cDef.animFn) { cDef.animFn(ctx, swX+swR, swY, swR, t); }
+      else { ctx.fillStyle=cDef.value||'#888'; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.fill(); }
+    } else if (cDef.category==='shape' && cDef.value) {
+      ctx.fillStyle='#44dd88';
+      if (cDef.animated&&cDef.animFn) { cDef.animFn(ctx,swX+swR,swY,swR,t,'#44dd88'); }
+      else { drawPlayerShape(ctx,swX+swR,swY,swR,cDef.value); ctx.fill(); }
+    } else if (cDef.category==='outlineColor') {
+      ctx.fillStyle='#1a1a2a'; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.fill();
+      if (cDef.animated&&cDef.animFn) { cDef.animFn(ctx,swX+swR,swY,swR,t); }
+      else { ctx.strokeStyle=cDef.value; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.stroke(); }
+    } else if (cDef.category==='trail') {
+      const tc=cDef.id==='trail_prism'?getPrismaticColor(t):cDef.value||'#888';
+      ctx.fillStyle=tc; ctx.fillRect(swX,swY-5,swR*2,10);
+    } else if (cDef.category==='flash') {
+      const fc=cDef.animated?getPrismaticColor(t):cDef.value||'#fff';
+      ctx.fillStyle='#222'; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=fc+'88'; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle=fc; ctx.beginPath(); ctx.arc(swX+swR,swY,swR*0.5,0,Math.PI*2); ctx.fill();
+    } else if (cDef.category==='deathBurst') {
+      ctx.fillStyle=cDef.value||'#888';
+      for (let pi=0;pi<6;pi++) {
+        const pa=(pi/6)*Math.PI*2; const pr=swR;
+        ctx.beginPath(); ctx.moveTo(swX+swR,swY); ctx.lineTo(swX+swR+Math.cos(pa)*pr,swY+Math.sin(pa)*pr); ctx.stroke();
+        ctx.beginPath(); ctx.arc(swX+swR+Math.cos(pa)*pr,swY+Math.sin(pa)*pr,3,0,Math.PI*2); ctx.fill();
+      }
+    } else if (cDef.category==='aura') {
+      ctx.fillStyle='#44dd88'; ctx.beginPath(); ctx.arc(swX+swR,swY,swR*0.5,0,Math.PI*2); ctx.fill();
+      drawPlayerAura(ctx,swX+swR,swY,swR*0.5,cDef.value,t,50);
+    } else {
+      const pc=cDef.value&&cDef.value.startsWith('#')?cDef.value:'#44dd88';
+      ctx.fillStyle=pc; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.fill();
+    }
+
+    // Name + rarity
+    ctx.fillStyle=isEquipped?'#88ffaa':'#ddeeff'; ctx.font=`${isEquipped?'bold ':''}11px monospace`; ctx.textAlign='left';
+    ctx.fillText(cDef.name, ix+IW*0.35, iy+22);
+    ctx.fillStyle=rarCol; ctx.font='9px monospace';
+    ctx.fillText(RARITY_LABELS[cDef.rarity]||cDef.rarity, ix+IW*0.35, iy+34);
+    if (isEquipped) {
+      ctx.fillStyle='#44ff88'; ctx.font='9px monospace';
+      ctx.fillText('EQUIPPED', ix+IW*0.35, iy+46);
+    }
+
+    const action = isEquipped ? 'unequip' : 'equip';
+    this.cosmeticPanelBoxes.push({ x:ix, y:iy, w:IW, h:IH, action, category:activeTab, cosmeticId:cDef.id });
+  }
+
+  // Back button
+  const backW=160, backH=36;
+  const backX=prevX+(prevW-backW)/2, backY=this.height-backH-14;
+  ctx.fillStyle='#1a1a2a'; ctx.beginPath(); ctx.roundRect(backX,backY,backW,backH,8); ctx.fill();
+  ctx.strokeStyle='#445566'; ctx.lineWidth=1; ctx.stroke();
+  ctx.fillStyle=PAL.MUTED; ctx.font='bold 14px monospace'; ctx.textAlign='center';
+  ctx.fillText('← Back', backX+backW/2, backY+23);
+  this.cosmeticPanelBoxes.push({ x:backX, y:backY, w:backW, h:backH, action:'back' });
+};

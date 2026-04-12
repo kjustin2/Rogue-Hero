@@ -1,6 +1,12 @@
 // MetaProgress.js — Persistent unlock + leaderboard system using localStorage
+import { rollBox } from './Cosmetics.js';
 
 const STORAGE_KEY = 'rogue_hero_meta';
+
+const _defaultEquipped = () => ({
+  bodyColor: null, outlineColor: null, shape: null,
+  trail: null, flash: null, deathBurst: null, aura: null,
+});
 
 const DEFAULT_STATE = {
   unlockedCharacters: ['blade'],
@@ -25,6 +31,20 @@ const DEFAULT_STATE = {
   },
   masteryUnlockedCards: [], // globally unlocked via mastery
   masterVolume: 1.0,
+  // ── Cosmetics ──
+  cosmetics: {
+    gold: 0,
+    owned: [],
+    totalBoxesOpened: 0,
+    equipped: {
+      blade:    _defaultEquipped(),
+      frost:    _defaultEquipped(),
+      shadow:   _defaultEquipped(),
+      echo:     _defaultEquipped(),
+      wraith:   _defaultEquipped(),
+      vanguard: _defaultEquipped(),
+    },
+  },
 };
 
 export class MetaProgress {
@@ -191,6 +211,67 @@ export class MetaProgress {
 
   getMasterVolume() { return this.state.masterVolume !== undefined ? this.state.masterVolume : 1.0; }
   setMasterVolume(v) { this.state.masterVolume = Math.max(0, Math.min(1, v)); this.save(); }
+
+  // ── COSMETICS ──
+
+  _ensureCosmetics() {
+    if (!this.state.cosmetics) {
+      this.state.cosmetics = { gold: 0, owned: [], totalBoxesOpened: 0, equipped: {} };
+    }
+    if (!this.state.cosmetics.equipped) this.state.cosmetics.equipped = {};
+    return this.state.cosmetics;
+  }
+
+  getGold() { return this._ensureCosmetics().gold; }
+
+  addGold(amount) {
+    this._ensureCosmetics().gold = Math.max(0, (this._ensureCosmetics().gold || 0) + amount);
+    this.save();
+  }
+
+  spendGold(amount) {
+    const c = this._ensureCosmetics();
+    if ((c.gold || 0) < amount) return false;
+    c.gold -= amount;
+    this.save();
+    return true;
+  }
+
+  openBox(tier) {
+    const c = this._ensureCosmetics();
+    const result = rollBox(tier, c.owned || []);
+    c.totalBoxesOpened = (c.totalBoxesOpened || 0) + 1;
+    const isDuplicate = (c.owned || []).includes(result.id);
+    if (isDuplicate) {
+      c.gold = (c.gold || 0) + 15; // refund gold for duplicate
+    } else {
+      if (!c.owned) c.owned = [];
+      c.owned.push(result.id);
+    }
+    this.save();
+    return { ...result, isDuplicate };
+  }
+
+  getOwned() { return this._ensureCosmetics().owned || []; }
+  getOwnedInCategory(category) { return this.getOwned().filter(id => { const c = this._getCosmeticById(id); return c && c.category === category; }); }
+
+  // Lazy import to avoid circular deps — CosmeticById is set externally
+  _getCosmeticById(id) { return window._cosmeticDefs && window._cosmeticDefs[id]; }
+
+  getEquipped(charId) {
+    const c = this._ensureCosmetics();
+    if (!c.equipped[charId]) c.equipped[charId] = _defaultEquipped();
+    return c.equipped[charId];
+  }
+
+  equipCosmetic(charId, category, cosmeticId) {
+    const c = this._ensureCosmetics();
+    if (!c.equipped[charId]) c.equipped[charId] = _defaultEquipped();
+    c.equipped[charId][category] = cosmeticId || null;
+    this.save();
+  }
+
+  cosmeticsUnlocked() { return (this.state.totalRuns || 0) >= 1; }
 }
 
 // ── SCORE CALCULATOR ──

@@ -16,9 +16,12 @@ import { MetaProgress, calculateScore } from './MetaProgress.js';
 import { Characters, CharacterList, DIFFICULTY_NAMES, DIFFICULTY_COLORS, DIFFICULTY_MODS } from './Characters.js';
 import { ItemManager, ItemDefinitions } from './Items.js';
 import { ProjectileManager } from './Projectile.js';
+import { CosmeticById, BOX_TIERS, rollBox, drawPlayerShape, drawPlayerAura, RARITY_COLORS, RARITY_LABELS, CATEGORY_LABELS, getPrismaticColor } from './Cosmetics.js';
 
-// Expose itemDefs for UI (avoids circular import)
+// Expose defs for UI (avoids circular imports)
 window._itemDefs = ItemDefinitions;
+window._cosmeticDefs = CosmeticById;
+window._charData = { Characters };
 
 // Polyfill ctx.roundRect for browsers that don't support it (Chrome <99, Firefox <112)
 if (!CanvasRenderingContext2D.prototype.roundRect) {
@@ -120,6 +123,14 @@ let discardReturnState = 'map';
 // Stats screen: delay before accepting input so a death-click doesn't instantly skip it
 let statsInputDelay = 0;
 
+// Player death: brief animation delay before transitioning to stats
+let playerDeathTimer = 0;
+
+// Cosmetics state
+let lootBoxOpen = null;         // { boxTier, result, elapsed, isSL, waitingDismiss }
+let cosmeticPanelCharId = null;
+let cosmeticPanelTab = 'bodyColor';
+
 // Zone transition first-time tooltip
 let seenZones = new Set();
 let zoneTooltip = null; // { text, color, timer }
@@ -184,6 +195,7 @@ events.on('PLAYER_SHOT_HIT', ({ enemy, damage, freeze, clusterAoE, executeLowSho
 });
 
 events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
+  if (!player.alive) return; // Ignore hits on already-dead player
   // Parry check
   if (player.parryWindow && player.parryWindow.timer > 0) {
     player.parryWindow.timer = 0;
@@ -248,11 +260,10 @@ events.on('ENEMY_MELEE_HIT', ({ damage, source }) => {
     console.log(`[Event] Player DIED Floor ${runManager.floor}, ${roomsCleared} rooms`);
     runStats.floor = runManager.floor;
     runStats.finalDeck = [...deckManager.collection];
-    checkRunUnlocks(false);
-    gameState = 'stats';
-    statsInputDelay = 2.0; // prevent accidental skip from last-frame click
-    input.clearFrame();
     runStats.won = false;
+    checkRunUnlocks(false);
+    playerDeathTimer = 0.8; // brief death animation before stats screen
+    input.clearFrame();
   }
 });
 
@@ -270,6 +281,7 @@ events.on('REQUEST_PLAYER_POS_CRASH', ({ radius, dmg, accidental }) => {
 
 events.on('KILL', () => {
   runStats.kills++;
+  meta.addGold(1);
   // IDEA-01: Cold Mastery kill bonus — +5 Tempo per kill while Cold Mastery active
   if (player && player._coldMasteryActive && tempo.value < 30) {
     tempo._add(5);
@@ -805,6 +817,7 @@ function checkRunUnlocks(won) {
 }
 
 function handleCombatClear() {
+  if (!player.alive) return; // Player died in same frame — skip room clear
   roomsCleared++;
   runStats.roomsCleared = roomsCleared;
   // IDEA-08: clear fortify buff after room clear
@@ -812,6 +825,11 @@ function handleCombatClear() {
   console.log(`[Combat] Cleared! Total: ${roomsCleared}`);
   audio.silenceMusic();
   audio.playBGM('map');
+
+  // Gold reward for room clear
+  if (currentCombatNode && currentCombatNode.type === 'boss') meta.addGold(25);
+  else if (currentCombatNode && currentCombatNode.type === 'elite') meta.addGold(12);
+  else meta.addGold(5);
 
   // IDEA-12: assign new curse for Brutal mode on floor advance
   if (selectedDifficulty >= 2) {
@@ -1028,8 +1046,29 @@ Player.prototype.heal = function(amt) {
 };
 
 // ── UPDATE ──────────────────────────────────────────────────────
+function buildEquippedCosmetics(eq) {
+  if (!eq) return null;
+  return {
+    bodyDef:    CosmeticById[eq.bodyColor]   || null,
+    outlineDef: CosmeticById[eq.outlineColor]|| null,
+    shapeDef:   CosmeticById[eq.shape]       || null,
+    trailDef:   CosmeticById[eq.trail]       || null,
+    flashDef:   CosmeticById[eq.flash]       || null,
+    burstDef:   CosmeticById[eq.deathBurst]  || null,
+    auraDef:    CosmeticById[eq.aura]        || null,
+  };
+}
+
 function update(logicDt, realDt) {
   runStats.elapsedTime += realDt;
+
+  // Set cosmetic context for this frame (used by player.js trail + draw)
+  if (selectedCharId && meta.cosmeticsUnlocked()) {
+    const eq = meta.getEquipped(selectedCharId);
+    window._equippedCosmetics = buildEquippedCosmetics(eq);
+  } else {
+    window._equippedCosmetics = null;
+  }
 
   // Apply slow-mo
   if (slowMoTimer > 0) {
@@ -1039,6 +1078,18 @@ function update(logicDt, realDt) {
   if (lastKillSlowTimer > 0) {
     lastKillSlowTimer -= realDt;
     logicDt *= 0.3;
+  }
+
+  // Player death animation — checked BEFORE state handlers so it fires even if gameState
+  // was changed mid-frame (e.g. handleCombatClear firing in the same frame the player died).
+  if (playerDeathTimer > 0) {
+    playerDeathTimer -= realDt;
+    if (playerDeathTimer <= 0) {
+      gameState = 'stats';
+      statsInputDelay = 2.0;
+    }
+    input.clearFrame();
+    return;
   }
 
   // ── INTRO ──
@@ -1067,11 +1118,89 @@ function update(logicDt, realDt) {
     return;
   }
 
+  // ── COSMETIC SHOP ──
+  if (gameState === 'cosmeticShop') {
+    if (lootBoxOpen) {
+      // Tick animation
+      if (!lootBoxOpen.waitingDismiss) {
+        lootBoxOpen.elapsed += realDt;
+        const holdStart = lootBoxOpen.isSL ? 3.4 : 2.5;
+        if (lootBoxOpen.elapsed >= holdStart) lootBoxOpen.waitingDismiss = true;
+      } else if (input.consumeClick() || input.consumeKey('enter') || input.consumeKey(' ')) {
+        lootBoxOpen = null;
+      }
+      input.clearFrame();
+      return;
+    }
+    if (input.consumeKey('escape')) { gameState = 'charSelect'; }
+    if (input.consumeClick()) {
+      const mx = input.mouse.x, my = input.mouse.y;
+      for (const b of ui.cosmeticShopBoxes) {
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          if (b.action === 'back') { gameState = 'charSelect'; break; }
+          if (b.action === 'buy_box') {
+            const tier = b.tier;
+            const cost = BOX_TIERS[tier].cost;
+            if (meta.spendGold(cost)) {
+              const result = meta.openBox(tier);
+              lootBoxOpen = { boxTier: tier, result, elapsed: 0, isSL: result.rarity === 'superleg', waitingDismiss: false };
+              events.emit('PLAY_SOUND', 'upgrade');
+            }
+            break;
+          }
+          break;
+        }
+      }
+    }
+    input.clearFrame();
+    return;
+  }
+
+  // ── COSMETIC PANEL ──
+  if (gameState === 'cosmeticPanel') {
+    if (input.consumeKey('escape')) { gameState = 'charSelect'; }
+    if (input.consumeClick()) {
+      const mx = input.mouse.x, my = input.mouse.y;
+      for (const b of ui.cosmeticPanelBoxes) {
+        if (mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h) {
+          if (b.action === 'back') { gameState = 'charSelect'; break; }
+          if (b.action === 'tab') { cosmeticPanelTab = b.tab; break; }
+          if (b.action === 'equip') {
+            meta.equipCosmetic(cosmeticPanelCharId, b.category, b.cosmeticId);
+            // Refresh cosmetic context immediately
+            if (cosmeticPanelCharId === selectedCharId) {
+              window._equippedCosmetics = buildEquippedCosmetics(meta.getEquipped(selectedCharId));
+            }
+            break;
+          }
+          if (b.action === 'unequip') {
+            meta.equipCosmetic(cosmeticPanelCharId, b.category, null);
+            if (cosmeticPanelCharId === selectedCharId) {
+              window._equippedCosmetics = buildEquippedCosmetics(meta.getEquipped(selectedCharId));
+            }
+            break;
+          }
+          break;
+        }
+      }
+    }
+    input.clearFrame();
+    return;
+  }
+
   // ── CHARACTER SELECT ──
   if (gameState === 'charSelect') {
+    if (input.consumeKey('escape')) {
+      gameState = 'intro';
+      selectedCharId = null;
+      audio.playBGM('menu');
+      input.clearFrame();
+      return;
+    }
     if (input.consumeClick()) {
       const result = handleCharSelectClick(input.mouse.x, input.mouse.y);
       if (result === 'start' && selectedCharId) startNewRun();
+      if (result === 'mainMenu') { gameState = 'intro'; selectedCharId = null; audio.playBGM('menu'); }
     }
     if (input.consumeKey('d') && selectedCharId) {
       const maxD = meta.getMaxDifficulty(selectedCharId);
@@ -1133,13 +1262,27 @@ function update(logicDt, realDt) {
   // ── STATS (replaces dead/victory) ──
   if (gameState === 'stats') {
     if (statsInputDelay > 0) {
-      statsInputDelay -= dt;
+      statsInputDelay -= realDt;
       input.clearFrame();
       return;
     }
-    if (input.consumeKey('enter') || input.consumeClick()) {
+    const clicked = input.consumeClick();
+    const pressedEnter = input.consumeKey('enter') || input.consumeKey(' ');
+    let returnToMenu = pressedEnter;
+    if (clicked) {
+      // Accept click anywhere on screen, or specifically on the button box
+      if (ui.statsReturnBox) {
+        const b = ui.statsReturnBox;
+        const mx = input.mouse.x, my = input.mouse.y;
+        returnToMenu = mx >= b.x && mx <= b.x + b.w && my >= b.y && my <= b.y + b.h;
+      } else {
+        returnToMenu = true; // fallback: any click returns
+      }
+    }
+    if (returnToMenu) {
       gameState = 'charSelect';
       selectedCharId = null;
+      statsInputDelay = 0;
       audio.playBGM('menu');
     }
     input.clearFrame();
@@ -1454,6 +1597,15 @@ function update(logicDt, realDt) {
   // Update enemies — pass projectile manager
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
+    // Dying: tick animation timer, remove when expired
+    if (e._dying) {
+      e._deathTimer -= logicDt;
+      if (e._deathTimer <= 0) {
+        enemies[i] = enemies[enemies.length - 1];
+        enemies.pop();
+      }
+      continue;
+    }
     // Bleed tick
     if (e.bleedTimer > 0) {
       e.bleedTimer -= logicDt;
@@ -1466,8 +1618,17 @@ function update(logicDt, realDt) {
           if (typeof e.cleanup === 'function') e.cleanup(); // BUG-07: prevent listener leaks
           itemManager.onKill(tempo.value, player);
           if (e.isBoss) itemManager.onBossKill(player);
-          enemies[i] = enemies[enemies.length - 1];
-          enemies.pop();
+          const _bossDeath2 = e.isBoss;
+          const _dur2 = _bossDeath2 ? 2.5 : 0.6;
+          e._dying = true; e._deathTimer = _dur2; e._deathDuration = _dur2;
+          if (_bossDeath2) {
+            e._bossDeathPos = { x: e.x, y: e.y };
+            events.emit('SCREEN_SHAKE', { duration: 1.2, intensity: 1.0 });
+            particles.spawnCrashBurst(e.x, e.y);
+            particles.spawnDamageNumber(e.x, e.y - 60, 'BOSS DEFEATED!');
+          }
+          const _burstDef2 = window._equippedCosmetics?.burstDef;
+          if (_burstDef2) particles.spawnBurst(e.x, e.y, _burstDef2.value);
           continue;
         }
       }
@@ -1477,9 +1638,19 @@ function update(logicDt, realDt) {
       // Item on-kill effects
       itemManager.onKill(tempo.value, player);
       if (e.isBoss) itemManager.onBossKill(player);
-      // Splitter: spawn splits (updateLogic already did it — just verify)
-      enemies[i] = enemies[enemies.length - 1];
-      enemies.pop();
+      if (typeof e.cleanup === 'function') e.cleanup();
+      const _bossDeath = e.isBoss;
+      const _dur = _bossDeath ? 2.5 : 0.6;
+      e._dying = true; e._deathTimer = _dur; e._deathDuration = _dur;
+      if (_bossDeath) {
+        e._bossDeathPos = { x: e.x, y: e.y };
+        events.emit('SCREEN_SHAKE', { duration: 1.2, intensity: 1.0 });
+        particles.spawnCrashBurst(e.x, e.y);
+        particles.spawnDamageNumber(e.x, e.y - 60, 'BOSS DEFEATED!');
+      }
+      // Death burst cosmetic
+      const _burstDef = window._equippedCosmetics?.burstDef;
+      if (_burstDef) particles.spawnBurst(e.x, e.y, _burstDef.value);
     }
   }
 
@@ -1500,8 +1671,8 @@ function update(logicDt, realDt) {
     }
   }
 
-  // Room clear check
-  if (enemies.length === 0 && gameState === 'playing') {
+  // Room clear check — skip if player died this frame
+  if (enemies.length === 0 && gameState === 'playing' && player.alive) {
     handleCombatClear();
   }
 
@@ -1779,6 +1950,17 @@ function handleCharSelectClick(mx, my) {
         selectedDifficulty = (selectedDifficulty + 1) % (maxD + 1);
         return 'difficulty';
       }
+      if (b.action === 'mainMenu') return 'mainMenu';
+      if (b.action === 'cosmetics') {
+        gameState = 'cosmeticShop';
+        return 'cosmetics';
+      }
+      if (b.action === 'customize' && meta.isCharacterUnlocked(b.charId)) {
+        cosmeticPanelCharId = b.charId;
+        cosmeticPanelTab = 'bodyColor';
+        gameState = 'cosmeticPanel';
+        return 'customize';
+      }
     }
   }
   return null;
@@ -1939,6 +2121,19 @@ function render() {
   renderer.ctx.globalAlpha = 1.0;
   renderer.ctx.setLineDash([]);
   renderer.ctx.shadowBlur = 0;
+
+  // ── COSMETIC SHOP ──
+  if (gameState === 'cosmeticShop') {
+    ui.drawCosmeticShop(renderer.ctx, meta, performance.now() / 1000);
+    if (lootBoxOpen) renderLootBoxOpen(renderer.ctx, performance.now() / 1000);
+    return;
+  }
+
+  // ── COSMETIC PANEL ──
+  if (gameState === 'cosmeticPanel') {
+    ui.drawCosmeticPanel(renderer.ctx, cosmeticPanelCharId, cosmeticPanelTab, meta, performance.now() / 1000);
+    return;
+  }
 
   // ── INTRO ──
   if (gameState === 'intro') {
@@ -2156,6 +2351,24 @@ function render() {
     ctx.fillText(`Runs: ${meta.state.totalRuns}  |  Wins: ${meta.state.totalWins}  |  Best Floor: ${meta.state.bestFloor}`, canvas.width / 2, 90);
 
     charSelectBoxes = [];
+
+    // ── MAIN MENU button — top-left, always visible ──
+    {
+      const ctx2 = renderer.ctx;
+      const mbW = 160, mbH = 38, mbX = 16, mbY = 14;
+      ctx2.fillStyle = '#1a1520';
+      ctx2.beginPath();
+      ctx2.roundRect(mbX, mbY, mbW, mbH, 7);
+      ctx2.fill();
+      ctx2.strokeStyle = '#6655aa';
+      ctx2.lineWidth = 1.5;
+      ctx2.stroke();
+      ctx2.fillStyle = '#bbaadd';
+      ctx2.font = 'bold 14px monospace';
+      ctx2.textAlign = 'center';
+      ctx2.fillText('◀  MAIN MENU', mbX + mbW / 2, mbY + 24);
+      charSelectBoxes.push({ x: mbX, y: mbY, w: mbW, h: mbH, action: 'mainMenu' });
+    }
     const chars = CharacterList;
     const GAP = 10;
     // Responsive sizing: fit all chars on screen — larger cards
@@ -2287,6 +2500,18 @@ function render() {
           ctx.font = d <= maxD ? 'bold 13px monospace' : '12px monospace';
           ctx.fillText(DIFFICULTY_NAMES[d], bx2 + (badgeW - 2) / 2, badgeY + badgeH * 0.65);
         }
+
+        // Customize button (above difficulty badges)
+        if (meta.cosmeticsUnlocked()) {
+          const custH = 22, custY = badgeY - custH - 5;
+          ctx.fillStyle = '#111828';
+          ctx.fillRect(x + 8, custY, CARD_W - 16, custH);
+          ctx.strokeStyle = '#336688'; ctx.lineWidth = 1;
+          ctx.strokeRect(x + 8, custY, CARD_W - 16, custH);
+          ctx.fillStyle = '#77aacc'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+          ctx.fillText('✦ CUSTOMIZE', x + CARD_W / 2, custY + 15);
+          charSelectBoxes.push({ x: x + 8, y: custY, w: CARD_W - 16, h: custH, charId: ch.id, action: 'customize' });
+        }
       }
       charSelectBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, charId: ch.id, action: 'select' });
       ctx.restore();
@@ -2334,6 +2559,28 @@ function render() {
       ctx2.font = '11px monospace';
       ctx2.textAlign = 'center';
       ctx2.fillText(`Bonus Cards Unlocked: ${bonusCards.map(c => CardDefinitions[c]?.name || c).join(', ')}`, canvas.width / 2, canvas.height - 20);
+    }
+
+    // Cosmetics Shop button — bottom-right, visible after first run
+    if (meta.cosmeticsUnlocked()) {
+      const ctx2 = renderer.ctx;
+      const cosmBtnW = 230, cosmBtnH = 40;
+      const cosmBtnX = canvas.width - cosmBtnW - 16;
+      const cosmBtnY = canvas.height - cosmBtnH - 16;
+      const gold = meta.getGold();
+      const t2 = performance.now() / 1000;
+      ctx2.fillStyle = '#101820';
+      ctx2.beginPath();
+      ctx2.roundRect(cosmBtnX, cosmBtnY, cosmBtnW, cosmBtnH, 8);
+      ctx2.fill();
+      ctx2.strokeStyle = getPrismaticColor(t2, 80, 60);
+      ctx2.lineWidth = 1.5;
+      ctx2.stroke();
+      ctx2.fillStyle = getPrismaticColor(t2, 80, 75);
+      ctx2.font = 'bold 14px monospace';
+      ctx2.textAlign = 'center';
+      ctx2.fillText(`★ COSMETICS  (${gold}g)`, cosmBtnX + cosmBtnW / 2, cosmBtnY + 26);
+      charSelectBoxes.push({ x: cosmBtnX, y: cosmBtnY, w: cosmBtnW, h: cosmBtnH, action: 'cosmetics' });
     }
     return;
   }
@@ -2512,6 +2759,7 @@ function render() {
         date: new Date().toISOString()
       });
     }
+    ui.width = canvas.width; ui.height = canvas.height;
     ui.newUnlocks = newUnlocks;
     const waitingForInput = statsInputDelay > 0;
     ui.drawStatsScreen(renderer.ctx, runStats, runStats._cachedScore, meta.getLeaderboard(), waitingForInput);
@@ -2553,17 +2801,71 @@ function render() {
   }
   // Set shared font once before enemy draw loop — avoids per-enemy ctx.font assignment
   renderer.ctx.font = 'bold 13px monospace';
-  for (const e of enemies) e.draw(renderer.ctx, now);
+  for (const e of enemies) {
+    if (e._dying) {
+      const _dur = e._deathDuration || 0.6;
+      // Bosses: fade only in the last 0.6s so they stay visible for most of the animation
+      const _fadeStart = e.isBoss ? 0.6 : _dur;
+      renderer.ctx.globalAlpha = Math.max(0, Math.min(1, e._deathTimer / _fadeStart));
+      e.draw(renderer.ctx, now);
+      renderer.ctx.globalAlpha = 1;
+      // Boss death expanding rings
+      if (e.isBoss && e._bossDeathPos) {
+        const _bpos = e._bossDeathPos;
+        const _elapsed = _dur - e._deathTimer;
+        const _ctx = renderer.ctx;
+        for (let _ri = 0; _ri < 3; _ri++) {
+          const _ringT = (_elapsed - _ri * 0.35);
+          if (_ringT < 0) continue;
+          const _ringR = 40 + _ringT * 280;
+          const _ringA = Math.max(0, 0.7 - _ringT * 0.9);
+          _ctx.beginPath();
+          _ctx.arc(_bpos.x, _bpos.y, _ringR, 0, Math.PI * 2);
+          _ctx.strokeStyle = `rgba(255,200,50,${_ringA})`;
+          _ctx.lineWidth = 3 - _ri * 0.8;
+          _ctx.stroke();
+        }
+        // "BOSS DEFEATED" overlay text
+        if (_elapsed < 2.0) {
+          const _textA = _elapsed < 0.3 ? _elapsed / 0.3 : Math.max(0, 1 - (_elapsed - 1.2) / 0.8);
+          _ctx.save();
+          _ctx.globalAlpha = _textA;
+          _ctx.font = 'bold 36px monospace';
+          _ctx.textAlign = 'center';
+          _ctx.fillStyle = '#ffe066';
+          _ctx.shadowColor = '#ff8800';
+          _ctx.shadowBlur = 18;
+          _ctx.fillText('BOSS DEFEATED', canvas.width / 2, canvas.height / 2 - 30);
+          _ctx.shadowBlur = 0;
+          _ctx.restore();
+        }
+      }
+    } else {
+      e.draw(renderer.ctx, now);
+    }
+  }
   // Batched health bar pass — standard enemies cache _hbColor in drawBody;
   // bosses/special enemies draw their own bars inside their draw() above
   for (const e of enemies) {
-    if (e.alive && e._hbColor) { e.drawHealthBar(renderer.ctx, e._hbColor); e._hbColor = null; }
+    if (e.alive && !e._dying && e._hbColor) { e.drawHealthBar(renderer.ctx, e._hbColor); e._hbColor = null; }
   }
   projectiles.draw(renderer.ctx);
   player.draw(renderer.ctx, tempo);
   _drawOrbs(renderer.ctx);
   particles.draw(renderer.ctx, canvas.width, canvas.height);
   renderer.endShakeScope();
+
+  // Player death overlay — darken screen as timer counts down
+  if (playerDeathTimer > 0) {
+    const alpha = (0.8 - playerDeathTimer / 0.8) * 0.85;
+    renderer.ctx.fillStyle = `rgba(80,0,0,${Math.max(0, Math.min(0.85, alpha))})`;
+    renderer.ctx.fillRect(0, 0, canvas.width, canvas.height);
+    renderer.ctx.fillStyle = `rgba(255,60,60,${Math.max(0, Math.min(0.9, alpha))})`;
+    renderer.ctx.font = 'bold 52px monospace';
+    renderer.ctx.textAlign = 'center';
+    renderer.ctx.fillText('DEFEATED', canvas.width / 2, canvas.height / 2);
+    return;
+  }
 
   if (gameState === 'playing' || gameState === 'paused') {
     ui.selectedCardSlot = selectedCardSlot;
@@ -2756,6 +3058,194 @@ function drawDraftScreen() {
     draftBoxes.push({ x, y: startY, w: CARD_W, h: CARD_H, idx: i });
   }
 }
+function _easeOutBounce(t) {
+  const n1=7.5625, d1=2.75;
+  if(t<1/d1) return n1*t*t;
+  if(t<2/d1) { t-=1.5/d1; return n1*t*t+0.75; }
+  if(t<2.5/d1) { t-=2.25/d1; return n1*t*t+0.9375; }
+  t-=2.625/d1; return n1*t*t+0.984375;
+}
+function _easeOutBack(t) {
+  const c1=1.70158,c3=c1+1;
+  return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2);
+}
+
+function renderLootBoxOpen(ctx, t) {
+  const lb = lootBoxOpen;
+  if (!lb) return;
+  const el = lb.elapsed;
+  const isSL = lb.isSL;
+  const result = lb.result;
+
+  // Background dim
+  const bgAlpha = (isSL && el >= 0.8 && el < 1.2) ? Math.min(1, (el-0.8)/0.4) : 0.88;
+  ctx.fillStyle = `rgba(0,0,0,${bgAlpha})`;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const cx = canvas.width/2, cy = canvas.height/2;
+  const rarCol = RARITY_COLORS[result.rarity] || '#ffffff';
+
+  // ── Phase: shake/crack — draw box ──
+  if (el < 0.8 && !(isSL && el >= 0.5)) {
+    const inShake = el < 0.5;
+    const shake = inShake ? Math.sin(el*40)*(0.5-el)*30 : 0;
+    const BW=80, BH=80;
+    ctx.save();
+    ctx.translate(cx+shake, cy);
+    // Box body
+    const tierCol = BOX_TIERS[lb.boxTier]?.color || '#888888';
+    ctx.fillStyle = tierCol;
+    ctx.fillRect(-BW/2, -BH/2, BW, BH);
+    ctx.strokeStyle = BOX_TIERS[lb.boxTier]?.glowColor || '#ffffff';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-BW/2, -BH/2, BW, BH);
+    // Lid separator
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth=2;
+    ctx.beginPath(); ctx.moveTo(-BW/2, -6); ctx.lineTo(BW/2, -6); ctx.stroke();
+    // Label
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(BOX_TIERS[lb.boxTier]?.label || 'Box', 0, 6);
+    // Crack effect
+    if (el >= 0.5) {
+      const crackProgress = (el-0.5)/0.3;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
+      ctx.globalAlpha = crackProgress;
+      for (let ci = 0; ci < 6; ci++) {
+        const angle = (ci/6)*Math.PI*2;
+        const len = 20+crackProgress*40;
+        ctx.beginPath();
+        ctx.moveTo(0,0);
+        ctx.lineTo(Math.cos(angle)*len, Math.sin(angle)*len);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  // ── Phase: SL blackout ──
+  if (isSL && el >= 0.8 && el < 1.2) return; // just the dim background
+
+  // ── Phase: SL beam ──
+  if (isSL && el >= 1.2 && el < 1.8) {
+    const prog = Math.min(1, (el-1.2)/0.6);
+    const beamH = canvas.height * prog;
+    const beamW = 60*(1-prog*0.6);
+    ctx.fillStyle = `rgba(255,255,255,${0.9-prog*0.4})`;
+    ctx.fillRect(cx-beamW/2, 0, beamW, beamH);
+    // Side glow
+    ctx.fillStyle = `rgba(${rarCol.replace('#','').match(/.{2}/g).map(h=>parseInt(h,16)).join(',')},0.3)`;
+    ctx.fillRect(cx-beamW*2, 0, beamW*5, beamH);
+    return;
+  }
+
+  // ── Phase: card reveal ──
+  const revealStart = isSL ? 1.8 : 0.8;
+  const typeStart = isSL ? 2.8 : 9999;
+  const holdStart = isSL ? 3.4 : 2.5;
+
+  if (el >= revealStart) {
+    const CW=280, CH=360;
+    let cardOffY;
+    if (isSL) {
+      const prog = Math.min(1, (el-revealStart)/1.0);
+      cardOffY = canvas.height*(1-_easeOutBack(prog));
+    } else {
+      const prog = Math.min(1, (el-revealStart)/0.7);
+      cardOffY = -canvas.height*(1-_easeOutBounce(prog));
+    }
+    const cardX = cx-CW/2;
+    const cardY = cy-CH/2 + cardOffY;
+
+    // Card background
+    ctx.fillStyle = '#0d0d18';
+    ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 12); ctx.fill();
+
+    // Rarity border glow
+    const rarR = result.rarity === 'superleg' ? getPrismaticColor(t) : rarCol;
+    ctx.strokeStyle = rarR; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect(cardX, cardY, CW, CH, 12); ctx.stroke();
+
+    // Top color bar
+    ctx.fillStyle = rarR;
+    ctx.fillRect(cardX+2, cardY+2, CW-4, 5);
+
+    // Rarity label
+    ctx.fillStyle = rarR; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+    const rarLabel = result.rarity === 'superleg' ? 'SUPER LEGENDARY' : (result.rarity||'').toUpperCase();
+    ctx.fillText(rarLabel, cx, cardY+26);
+
+    // Category label
+    ctx.fillStyle = '#667799'; ctx.font = '12px monospace';
+    ctx.fillText(CATEGORY_LABELS[result.category] || result.category, cx, cardY+44);
+
+    // Mini player preview
+    const prevR = 32;
+    const prevX = cx, prevY = cardY + 100;
+    if (result.category === 'bodyColor') {
+      if (result.animated && result.animFn) {
+        result.animFn(ctx, prevX, prevY, prevR, t);
+      } else if (result.value) {
+        ctx.fillStyle = result.value;
+        ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI*2); ctx.fill();
+      }
+    } else if (result.category === 'shape' && result.value) {
+      ctx.fillStyle = '#44dd88';
+      if (result.animated && result.animFn) {
+        result.animFn(ctx, prevX, prevY, prevR, t, '#44dd88');
+      } else {
+        drawPlayerShape(ctx, prevX, prevY, prevR, result.value);
+        ctx.fill();
+      }
+    } else if (result.category === 'aura') {
+      ctx.fillStyle = '#44dd88';
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR*0.7, 0, Math.PI*2); ctx.fill();
+      drawPlayerAura(ctx, prevX, prevY, prevR*0.7, result.value, t, 50);
+    } else {
+      // Generic preview circle with value color hint
+      const previewCol = result.value && result.value.startsWith('#') ? result.value : '#44dd88';
+      ctx.fillStyle = previewCol;
+      ctx.beginPath(); ctx.arc(prevX, prevY, prevR, 0, Math.PI*2); ctx.fill();
+    }
+
+    // Name
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 22px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(result.name, cx, cardY+170);
+
+    // Duplicate notice or normal desc
+    if (result.isDuplicate) {
+      ctx.fillStyle = '#aaaaaa'; ctx.font = '13px monospace';
+      ctx.fillText('Already owned — +15 gold refunded', cx, cardY+198);
+    } else {
+      ctx.fillStyle = rarR; ctx.font = '13px monospace';
+      ctx.fillText('New cosmetic unlocked!', cx, cardY+198);
+    }
+
+    // SL typewriter text
+    if (isSL && el >= typeStart) {
+      const full = 'SUPER LEGENDARY!';
+      const chars = Math.min(full.length, Math.floor((el-typeStart)/(0.8/full.length)));
+      ctx.fillStyle = getPrismaticColor(t, 100, 70);
+      ctx.font = 'bold 26px monospace';
+      ctx.fillText(full.slice(0,chars), cx, cardY-24);
+    }
+
+    // Rare/Legendary ambient particles (spawned via events at transition — just show shimmer text)
+    if (result.rarity === 'legendary' || result.rarity === 'superleg') {
+      const shimmer = (Math.sin(t*4)+1)*0.5;
+      ctx.fillStyle = `rgba(255,220,80,${0.15+shimmer*0.15})`;
+      ctx.fillRect(cardX, cardY, CW, CH);
+    }
+
+    // Dismiss prompt
+    if (lb.waitingDismiss) {
+      ctx.fillStyle = 'rgba(180,200,220,0.8)';
+      ctx.font = 'bold 15px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('[ Click to continue ]', cx, cardY+CH+28);
+    }
+  }
+}
+
 function drawPauseMenu() {
   const ctx = renderer.ctx;
 
