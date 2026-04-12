@@ -23,15 +23,10 @@ export class Enemy extends Entity {
     // Spawn animation
     this.spawnTimer = 0.35;
     this.spawning = true;
-    // Shrieker buff fields (set externally)
-    this.buffTimer = 0;
-    this.buffSpeedMult = 1.0;
-    this.buffAttackMult = 1.0;
   }
 
   spdMult() {
     let m = this.difficultySpdMult;
-    if (this.buffTimer > 0) m *= this.buffSpeedMult;
     if (this.slowTimer > 0) m *= this.slowMult;
     return m;
   }
@@ -41,10 +36,6 @@ export class Enemy extends Entity {
     this.attackCooldown = Math.max(0, this.attackCooldown - dt);
     if (this.markedTimer > 0) this.markedTimer = Math.max(0, this.markedTimer - dt);
     if (this.slowTimer > 0) this.slowTimer = Math.max(0, this.slowTimer - dt);
-    if (this.buffTimer > 0) {
-      this.buffTimer = Math.max(0, this.buffTimer - dt);
-      if (this.buffTimer <= 0) { this.buffSpeedMult = 1.0; this.buffAttackMult = 1.0; }
-    }
     // IDEA-05: Phantom Ink — reset aggro while player is dodging (non-boss only)
     if (!this.isBoss && player && player._phantomInkActive && this.state === 'chase') {
       this.state = 'idle';
@@ -250,7 +241,7 @@ export class Chaser extends Enemy {
     }
     const spd = baseSpd * (this.sprintTimer > 0 ? 1.6 : 1.0);
 
-    if (this.state === 'idle' && dist < 400 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist <= 55 && this.attackCooldown <= 0) {
@@ -316,7 +307,7 @@ export class Sniper extends Enemy {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const spd = 65 * this.spdMult();
 
-    if (this.state === 'idle' && dist < 600 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (this.hp < this.maxHp * 0.3) {
@@ -395,7 +386,7 @@ export class Bruiser extends Enemy {
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist <= 120 && this.attackCooldown <= 0) {
@@ -472,7 +463,7 @@ export class Turret extends Enemy {
     const targetAngle = Math.atan2(dy, dx);
     this.aimAngle += (targetAngle - this.aimAngle) * 3 * dt;
 
-    if (this.state === 'idle' && dx*dx+dy*dy < 360000) this.state = 'chase';
+    if (this.state === 'idle' && dx*dx+dy*dy < 562500) this.state = 'chase';
 
     if (this.state === 'chase' && this.attackCooldown <= 0) {
       this.state = 'telegraph';
@@ -571,7 +562,7 @@ export class Teleporter extends Enemy {
       }
     }
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist > 60) {
@@ -654,7 +645,7 @@ export class Swarm extends Enemy {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const spd = 160 * this.spdMult();
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist <= 35 && this.attackCooldown <= 0) {
@@ -714,7 +705,7 @@ export class Healer extends Enemy {
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (this.hp < this.maxHp * 0.3) {
@@ -790,7 +781,7 @@ export class Mirror extends Enemy {
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist < 100) {
@@ -865,7 +856,7 @@ export class TempoVampire extends Enemy {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const spd = 105 * (0.7 + (tempo.value / 100) * 0.8) * this.spdMult();
 
-    if (this.state === 'idle' && dist < 350 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 520 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist <= 50 && this.attackCooldown <= 0) {
@@ -1019,7 +1010,7 @@ export class Phantom extends Enemy {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const spd = 140 * this.spdMult();
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist <= 40 && this.attackCooldown <= 0) {
@@ -1211,7 +1202,7 @@ export class Marksman extends Enemy {
     this._prevPlayerX = player.x;
     this._prevPlayerY = player.y;
 
-    if (this.state === 'idle' && dist < 650 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 950 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist < 180) { this.x -= (dx / dist) * spd * dt; this.y -= (dy / dist) * spd * dt; }
@@ -1872,88 +1863,6 @@ export class BossApex extends Enemy {
   }
 }
 
-// ── SHRIEKER ─────────────────────────────────────────────────────
-export class Shrieker extends Enemy {
-  constructor(x, y) {
-    super(x, y, 13, 55, 'shrieker');
-    this.telegraphDuration = 0.8;
-    this.shriekCooldown = 6.0;
-    this.shriekRadius = 300;
-  }
-
-  updateLogic(dt, player, tempo, roomMap, allEnemies) {
-    if (!this.alive) return;
-    if (this.updateSpawn(dt)) return;
-    this.updateTimers(dt);
-    if (this.staggerTimer > 0) { this.staggerTimer -= dt; return; }
-
-    const dx = player.x - this.x, dy = player.y - this.y;
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
-
-    if (this.state === 'chase') {
-      const targetDist = 250;
-      const spd = 120 * this.spdMult();
-      if (dist < targetDist - 30) {
-        this.x -= (dx / dist) * spd * dt;
-        this.y -= (dy / dist) * spd * dt;
-      } else if (dist > targetDist + 30) {
-        this.x += (dx / dist) * spd * dt;
-        this.y += (dy / dist) * spd * dt;
-      }
-      this.shriekCooldown -= dt;
-      if (this.shriekCooldown <= 0) {
-        this.state = 'telegraph';
-        this.telegraphTimer = this.telegraphDuration;
-        this.shriekCooldown = 6.0;
-      }
-    }
-
-    if (this.state === 'telegraph') {
-      this.telegraphTimer -= dt;
-      if (this.telegraphTimer <= 0) {
-        // Apply buff to all nearby enemies
-        if (allEnemies) {
-          for (const e of allEnemies) {
-            if (!e.alive || e === this) continue;
-            const edx = e.x - this.x, edy = e.y - this.y;
-            if (edx*edx + edy*edy < this.shriekRadius * this.shriekRadius) {
-              e.buffTimer = 3.0;
-              e.buffSpeedMult = 1.35;
-              e.buffAttackMult = 1.3;
-            }
-          }
-        }
-        this.state = 'chase';
-      }
-    }
-    if (roomMap) { const c = roomMap.clamp(this.x, this.y, this.r); this.x = c.x; this.y = c.y; }
-  }
-
-  drawTelegraph(ctx, now) {
-    if (this.state === 'telegraph') {
-      const p = 1 - (this.telegraphTimer / this.telegraphDuration);
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.shriekRadius * p, 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(255,255,100,${0.2 + p * 0.4})`;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-    }
-  }
-
-  draw(ctx, now) {
-    if (!this.alive) return;
-    const pulse = Math.sin(now / 200) * 2;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.r + pulse, 0, Math.PI * 2);
-    ctx.strokeStyle = this.state === 'telegraph' ? '#ffff44' : 'rgba(255,255,100,0.4)';
-    ctx.lineWidth = 2 + pulse;
-    ctx.stroke();
-    this.drawBody(ctx, 'SHRIEKER', '#eeee88', now);
-  }
-}
-
 // ── JUGGERNAUT (Elite) ────────────────────────────────────────────
 export class Juggernaut extends Enemy {
   constructor(x, y) {
@@ -1993,7 +1902,7 @@ export class Juggernaut extends Enemy {
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (this.state === 'idle' && dist < 600 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.chargeActive) {
       this.chargeTimer -= dt;
@@ -2131,7 +2040,7 @@ export class Stalker extends Enemy {
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (this.state === 'idle' && dist < 400 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       this.isVisible = false;
@@ -2262,7 +2171,7 @@ export class Splitter extends Enemy {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const spd = 75 * this.spdMult();
 
-    if (this.state === 'idle' && dist < 400 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (dist <= 60 && this.attackCooldown <= 0) {
@@ -2335,7 +2244,7 @@ export class Corruptor extends Enemy {
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       // Reposition only if player moves away
@@ -2417,7 +2326,7 @@ export class BerserkerEnemy extends Enemy {
     const baseSpd = this.isBerserk ? 110 : 55;
     const spd = baseSpd * this.spdMult();
 
-    if (this.state === 'idle' && dist < 450 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 670 && !player._phantomInkActive) this.state = 'chase';
 
     const hitRange = 70;
     if (this.state === 'chase') {
@@ -2436,7 +2345,7 @@ export class BerserkerEnemy extends Enemy {
       if (this.telegraphTimer <= 0) {
         if (dist <= hitRange + 15) events.emit('ENEMY_MELEE_HIT', { damage: this.isBerserk ? 5 : 4, source: this });
         const cd = this.isBerserk ? 0.6 : 1.8;
-        this.attackCooldown = cd * (this.buffAttackMult > 1 ? 1/this.buffAttackMult : 1);
+        this.attackCooldown = cd;
         this.state = 'chase';
       }
     }
@@ -2481,7 +2390,7 @@ export class RicochetDrone extends Enemy {
     const dist = Math.sqrt(dx * dx + dy * dy);
     const spd = 80 * this.spdMult();
 
-    if (this.state === 'idle' && dist < 500 && !player._phantomInkActive) this.state = 'chase';
+    if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       this.orbitAngle += dt * 0.7;

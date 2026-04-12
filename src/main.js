@@ -3,7 +3,7 @@ import { EventBus, events } from './EventBus.js';
 import { InputManager } from './Input.js';
 import { Renderer } from './Renderer.js';
 import { Player } from './player.js';
-import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, Phantom, Blocker, Bomber, Marksman, BossBrawler, BossConductor, BossEcho, BossNecromancer, BossApex, Shrieker, Juggernaut, Stalker, Splitter, Split, Corruptor, BerserkerEnemy, RicochetDrone, Timekeeper, Disruptor, Sentinel, BossArchivist } from './Enemy.js';
+import { Chaser, Sniper, Bruiser, Turret, Teleporter, Swarm, Healer, Mirror, TempoVampire, ShieldDrone, Phantom, Blocker, Bomber, Marksman, BossBrawler, BossConductor, BossEcho, BossNecromancer, BossApex, Juggernaut, Stalker, Splitter, Split, Corruptor, BerserkerEnemy, RicochetDrone, Timekeeper, Disruptor, Sentinel, BossArchivist } from './Enemy.js';
 import { TempoSystem } from './tempo.js';
 import { CombatManager } from './Combat.js';
 import { ParticleSystem } from './Particles.js';
@@ -582,7 +582,6 @@ function spawnEnemies(node) {
       else if (f >= 2) enemies.push(rng() < 0.4 ? new BerserkerEnemy(rndX(), rndY()) : new Chaser(rndX(), rndY()));
       else enemies.push(new Chaser(rndX(), rndY()));
     }
-    if (f >= 1 && rng() < 0.5) enemies.push(new Shrieker(rndX(), rndY()));
     if (f >= 2) enemies.push(new Healer(rndX(), rndY()));
     if (f >= 3 && rng() < 0.4) enemies.push(new TempoVampire(rndX(), rndY()));
     if (f >= 3 && rng() < 0.4) enemies.push(new Timekeeper(rndX(), rndY()));
@@ -605,7 +604,6 @@ function spawnEnemies(node) {
       else if (f >= 2 && roll < 0.42) enemies.push(new RicochetDrone(rndX(), rndY()));
       else if (f >= 2 && roll < 0.46) enemies.push(new Disruptor(rndX(), rndY()));
       else if (f >= 2 && roll < 0.50) enemies.push(new Teleporter(rndX(), rndY()));
-      else if (f >= 1 && roll < 0.54) enemies.push(new Shrieker(rndX(), rndY()));
       else if (f >= 1 && roll < 0.58) enemies.push(new Splitter(rndX(), rndY()));
       else if (roll < 0.63) enemies.push(new TempoVampire(rndX(), rndY()));
       else if (roll < 0.67) enemies.push(new ShieldDrone(rndX(), rndY())); // BUG-06: was dead branch (0.63)
@@ -2372,8 +2370,8 @@ function render() {
     const chars = CharacterList;
     const GAP = 10;
     // Responsive sizing: fit all chars on screen — larger cards
-    const CARD_W = Math.min(300, Math.floor((canvas.width - 30 - (chars.length - 1) * GAP) / chars.length));
-    const CARD_H = Math.min(460, Math.floor(canvas.height * 0.76));
+    const CARD_W = Math.min(360, Math.floor((canvas.width - 30 - (chars.length - 1) * GAP) / chars.length));
+    const CARD_H = Math.min(560, Math.floor(canvas.height * 0.82));
     const totalW = chars.length * CARD_W + (chars.length - 1) * GAP;
     const startX = (canvas.width - totalW) / 2;
     const startY = 104;
@@ -2408,14 +2406,14 @@ function render() {
         ctx.fillStyle = '#333';
         ctx.fillRect(x, startY, CARD_W, CARD_H);
         ctx.fillStyle = '#555';
-        ctx.font = 'bold 18px monospace';
+        ctx.font = 'bold 22px monospace';
         ctx.textAlign = 'center';
         ctx.fillText('LOCKED', x + CARD_W / 2, startY + CARD_H / 2 - 16);
         ctx.fillStyle = '#ff6644';
-        ctx.font = 'bold 12px monospace';
-        ctx.fillText(ch.name, x + CARD_W / 2, startY + CARD_H / 2 + 10);
+        ctx.font = 'bold 15px monospace';
+        ctx.fillText(ch.name, x + CARD_W / 2, startY + CARD_H / 2 + 12);
         ctx.fillStyle = '#888';
-        ctx.font = '11px monospace';
+        ctx.font = '13px monospace';
         const cond = ch.unlockConditionText || 'Complete a run to unlock';
         ui._wrapText(ctx, cond, x + 15, startY + CARD_H / 2 + 28, CARD_W - 30, 15);
       } else {
@@ -2426,40 +2424,40 @@ function render() {
         const nextThreshold = THRESHOLDS[masteryLevel] || null;
 
         ctx.fillStyle = ch.color;
-        ctx.font = `bold ${Math.min(28, Math.max(18, Math.floor(CARD_W / 9)))}px monospace`;
+        ctx.font = `bold ${Math.min(34, Math.max(22, Math.floor(CARD_W / 8)))}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText(ch.name, x + CARD_W / 2, startY + 36);
+        ctx.fillText(ch.name, x + CARD_W / 2, startY + 38);
         ctx.fillStyle = '#aabbcc';
-        ctx.font = `bold ${Math.min(14, Math.max(11, Math.floor(CARD_W / 15)))}px monospace`;
-        ctx.fillText(ch.title, x + CARD_W / 2, startY + 56);
+        ctx.font = `bold ${Math.min(17, Math.max(13, Math.floor(CARD_W / 14)))}px monospace`;
+        ctx.fillText(ch.title, x + CARD_W / 2, startY + 60);
 
         // Description
         ctx.fillStyle = '#99aabb';
-        ctx.font = '13px monospace';
-        const descLines = ui._wrapTextLines(ch.description, CARD_W - 20, 13);
+        ctx.font = '15px monospace';
+        const descLines = ui._wrapTextLines(ch.description, CARD_W - 20, 15);
         for (let dl = 0; dl < Math.min(descLines.length, 4); dl++) {
-          ctx.fillText(descLines[dl], x + CARD_W / 2, startY + 76 + dl * 16);
+          ctx.fillText(descLines[dl], x + CARD_W / 2, startY + 84 + dl * 19);
         }
 
         // Stats: two rows so they don't crowd each other
-        const statsY = startY + 142;
-        ctx.font = '13px monospace';
+        const statsY = startY + 162;
+        ctx.font = '15px monospace';
         ctx.fillStyle = '#ee5555';
         ctx.fillText(`♥ ${ch.hp} HP`, x + CARD_W / 3, statsY);
         ctx.fillStyle = '#44aaff';
         ctx.fillText(`${ch.apRegen} AP/s`, x + CARD_W * 2 / 3, statsY);
         ctx.fillStyle = '#44ff88';
-        ctx.font = '13px monospace';
-        ctx.fillText(`${ch.baseSpeed} SPD`, x + CARD_W / 2, statsY + 19);
+        ctx.font = '15px monospace';
+        ctx.fillText(`${ch.baseSpeed} SPD`, x + CARD_W / 2, statsY + 22);
 
         // Per-char stats
         ctx.fillStyle = '#6677aa';
-        ctx.font = '12px monospace';
-        ctx.fillText(`Runs: ${charStats.runs}  ·  Wins: ${charStats.wins}`, x + CARD_W / 2, statsY + 38);
+        ctx.font = '14px monospace';
+        ctx.fillText(`Runs: ${charStats.runs}  ·  Wins: ${charStats.wins}`, x + CARD_W / 2, statsY + 44);
 
         // Mastery progress bar
-        const masY = statsY + 58;
-        const masBarH = 18;
+        const masY = statsY + 68;
+        const masBarH = 20;
         ctx.fillStyle = '#222235';
         ctx.fillRect(x + 8, masY, CARD_W - 16, masBarH);
         const masThresh = nextThreshold || THRESHOLDS[THRESHOLDS.length - 1];
@@ -2469,22 +2467,22 @@ function render() {
         ctx.fillRect(x + 8, masY, (CARD_W - 16) * masPct, masBarH);
         ctx.strokeStyle = masColor + '66'; ctx.lineWidth = 1; ctx.strokeRect(x + 8, masY, CARD_W - 16, masBarH);
         ctx.fillStyle = '#ddd';
-        ctx.font = 'bold 12px monospace';
+        ctx.font = 'bold 14px monospace';
         const masLabel = masteryLevel >= 4 ? 'MASTERY MAX' : `Lv${masteryLevel}→${masteryLevel + 1}: ${masteryRuns}/${masThresh}`;
-        ctx.fillText(masLabel, x + CARD_W / 2, masY + masBarH - 4);
+        ctx.fillText(masLabel, x + CARD_W / 2, masY + masBarH - 3);
 
         // Mastery card unlocks
         ctx.fillStyle = '#44bb77';
-        ctx.font = 'bold 13px monospace';
-        ctx.fillText('MASTERY CARDS', x + CARD_W / 2, masY + masBarH + 18);
+        ctx.font = 'bold 15px monospace';
+        ctx.fillText('MASTERY CARDS', x + CARD_W / 2, masY + masBarH + 20);
         const mCards = ch.masteryCards || [];
         for (let mc = 0; mc < Math.min(mCards.length, 4); mc++) {
           const unlocked = mc < masteryLevel;
           const cDef = CardDefinitions[mCards[mc]];
           const cName = cDef ? cDef.name : mCards[mc];
           ctx.fillStyle = unlocked ? '#88ffaa' : '#445566';
-          ctx.font = `${unlocked ? 'bold ' : ''}13px monospace`;
-          ctx.fillText(`Lv${mc + 1}: ${unlocked ? cName : '???'}`, x + CARD_W / 2, masY + masBarH + 36 + mc * 18);
+          ctx.font = `${unlocked ? 'bold ' : ''}14px monospace`;
+          ctx.fillText(`Lv${mc + 1}: ${unlocked ? cName : '???'}`, x + CARD_W / 2, masY + masBarH + 40 + mc * 20);
         }
 
         // Difficulty unlock badges — taller with larger font
@@ -2497,7 +2495,7 @@ function render() {
           ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] + '33' : '#111';
           ctx.fillRect(bx2, badgeY, badgeW - 2, badgeH);
           ctx.fillStyle = d <= maxD ? DIFFICULTY_COLORS[d] : '#444';
-          ctx.font = d <= maxD ? 'bold 13px monospace' : '12px monospace';
+          ctx.font = d <= maxD ? 'bold 15px monospace' : '14px monospace';
           ctx.fillText(DIFFICULTY_NAMES[d], bx2 + (badgeW - 2) / 2, badgeY + badgeH * 0.65);
         }
 
@@ -2799,56 +2797,6 @@ function render() {
     combat.drawRangeIndicator(renderer.ctx, player, deckManager.hand, CardDefinitions, selectedCardSlot);
     combat.drawReticles(renderer.ctx, deckManager.hand, CardDefinitions, now);
   }
-  // Set shared font once before enemy draw loop — avoids per-enemy ctx.font assignment
-  renderer.ctx.font = 'bold 13px monospace';
-  for (const e of enemies) {
-    if (e._dying) {
-      const _dur = e._deathDuration || 0.6;
-      // Bosses: fade only in the last 0.6s so they stay visible for most of the animation
-      const _fadeStart = e.isBoss ? 0.6 : _dur;
-      renderer.ctx.globalAlpha = Math.max(0, Math.min(1, e._deathTimer / _fadeStart));
-      e.draw(renderer.ctx, now);
-      renderer.ctx.globalAlpha = 1;
-      // Boss death expanding rings
-      if (e.isBoss && e._bossDeathPos) {
-        const _bpos = e._bossDeathPos;
-        const _elapsed = _dur - e._deathTimer;
-        const _ctx = renderer.ctx;
-        for (let _ri = 0; _ri < 3; _ri++) {
-          const _ringT = (_elapsed - _ri * 0.35);
-          if (_ringT < 0) continue;
-          const _ringR = 40 + _ringT * 280;
-          const _ringA = Math.max(0, 0.7 - _ringT * 0.9);
-          _ctx.beginPath();
-          _ctx.arc(_bpos.x, _bpos.y, _ringR, 0, Math.PI * 2);
-          _ctx.strokeStyle = `rgba(255,200,50,${_ringA})`;
-          _ctx.lineWidth = 3 - _ri * 0.8;
-          _ctx.stroke();
-        }
-        // "BOSS DEFEATED" overlay text
-        if (_elapsed < 2.0) {
-          const _textA = _elapsed < 0.3 ? _elapsed / 0.3 : Math.max(0, 1 - (_elapsed - 1.2) / 0.8);
-          _ctx.save();
-          _ctx.globalAlpha = _textA;
-          _ctx.font = 'bold 36px monospace';
-          _ctx.textAlign = 'center';
-          _ctx.fillStyle = '#ffe066';
-          _ctx.shadowColor = '#ff8800';
-          _ctx.shadowBlur = 18;
-          _ctx.fillText('BOSS DEFEATED', canvas.width / 2, canvas.height / 2 - 30);
-          _ctx.shadowBlur = 0;
-          _ctx.restore();
-        }
-      }
-    } else {
-      e.draw(renderer.ctx, now);
-    }
-  }
-  // Batched health bar pass — standard enemies cache _hbColor in drawBody;
-  // bosses/special enemies draw their own bars inside their draw() above
-  for (const e of enemies) {
-    if (e.alive && !e._dying && e._hbColor) { e.drawHealthBar(renderer.ctx, e._hbColor); e._hbColor = null; }
-  }
   projectiles.draw(renderer.ctx);
   player.draw(renderer.ctx, tempo);
   _drawOrbs(renderer.ctx);
@@ -2869,6 +2817,12 @@ function render() {
 
   if (gameState === 'playing' || gameState === 'paused') {
     ui.selectedCardSlot = selectedCardSlot;
+    ui.battleMode = true;
+    // Flag whether any enemy overlaps the card zone or tempo bar zone so they can fade
+    const _cardZoneY = canvas.height - 192 - 22;
+    const _tempoZoneY = canvas.height - 192 - 22 - 22 - 44 - 22; // top of tempo bar widget
+    ui.cardZoneOccupied = (player.y + player.r > _cardZoneY) || enemies.some(e => e.alive && !e._dying && e.y + e.r > _cardZoneY);
+    ui.tempoZoneOccupied = (player.y + player.r > _tempoZoneY) || enemies.some(e => e.alive && !e._dying && e.y + e.r > _tempoZoneY);
     ui.draw(renderer.ctx);
     const ctx = renderer.ctx;
     // Floor / difficulty badge — top right (below minimap)
@@ -2888,6 +2842,61 @@ function render() {
     }
     // Touch controls
     input.drawTouchControls(ctx);
+
+    // ── Enemies drawn above the card HUD so they are never occluded by it ──
+    // A second shake scope ensures they still respond to screen shake.
+    renderer.beginShakeScope();
+    // Set shared font once before enemy draw loop — avoids per-enemy ctx.font assignment
+    renderer.ctx.font = 'bold 13px monospace';
+    for (const e of enemies) {
+      if (e._dying) {
+        const _dur = e._deathDuration || 0.6;
+        // Bosses: fade only in the last 0.6s so they stay visible for most of the animation
+        const _fadeStart = e.isBoss ? 0.6 : _dur;
+        renderer.ctx.globalAlpha = Math.max(0, Math.min(1, e._deathTimer / _fadeStart));
+        e.draw(renderer.ctx, now);
+        renderer.ctx.globalAlpha = 1;
+        // Boss death expanding rings
+        if (e.isBoss && e._bossDeathPos) {
+          const _bpos = e._bossDeathPos;
+          const _elapsed = _dur - e._deathTimer;
+          const _ctx = renderer.ctx;
+          for (let _ri = 0; _ri < 3; _ri++) {
+            const _ringT = (_elapsed - _ri * 0.35);
+            if (_ringT < 0) continue;
+            const _ringR = 40 + _ringT * 280;
+            const _ringA = Math.max(0, 0.7 - _ringT * 0.9);
+            _ctx.beginPath();
+            _ctx.arc(_bpos.x, _bpos.y, _ringR, 0, Math.PI * 2);
+            _ctx.strokeStyle = `rgba(255,200,50,${_ringA})`;
+            _ctx.lineWidth = 3 - _ri * 0.8;
+            _ctx.stroke();
+          }
+          // "BOSS DEFEATED" overlay text
+          if (_elapsed < 2.0) {
+            const _textA = _elapsed < 0.3 ? _elapsed / 0.3 : Math.max(0, 1 - (_elapsed - 1.2) / 0.8);
+            _ctx.save();
+            _ctx.globalAlpha = _textA;
+            _ctx.font = 'bold 36px monospace';
+            _ctx.textAlign = 'center';
+            _ctx.fillStyle = '#ffe066';
+            _ctx.shadowColor = '#ff8800';
+            _ctx.shadowBlur = 18;
+            _ctx.fillText('BOSS DEFEATED', canvas.width / 2, canvas.height / 2 - 30);
+            _ctx.shadowBlur = 0;
+            _ctx.restore();
+          }
+        }
+      } else {
+        e.draw(renderer.ctx, now);
+      }
+    }
+    // Batched health bar pass — standard enemies cache _hbColor in drawBody;
+    // bosses/special enemies draw their own bars inside their draw() above
+    for (const e of enemies) {
+      if (e.alive && !e._dying && e._hbColor) { e.drawHealthBar(renderer.ctx, e._hbColor); e._hbColor = null; }
+    }
+    renderer.endShakeScope();
 
     // Zone transition tooltip (first-time only)
     if (zoneTooltip && zoneTooltip.timer > 0) {

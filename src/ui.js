@@ -193,6 +193,9 @@ export class UI {
     // Position above the card hand with clear breathing room
     const by = this.height - CARD_H - 22 - BAR_H - 44; // increased gap
 
+    ctx.save();
+    if (this.tempoZoneOccupied) ctx.globalAlpha = 0.35;
+
     // Background
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(bx - 4, by - 22, BAR_W + 8, BAR_H + 30);
@@ -296,6 +299,8 @@ export class UI {
     ctx.fillStyle = spdMult >= 1.2 ? PAL.FLOWING : (spdMult < 1.0 ? PAL.COLD : PAL.MUTED);
     ctx.textAlign = 'right';
     ctx.fillText(`SPD ×${spdMult.toFixed(1)}`, bx + BAR_W, by + BAR_H + 16);
+
+    ctx.restore(); // end tempoZoneOccupied fade scope
   }
 
   // ── HP — top left, bigger segments with color shift
@@ -498,6 +503,9 @@ export class UI {
     const startX = (this.width - totalW) / 2;
     const baseY = this.height - CARD_H - 22;
 
+    ctx.save();
+    if (this.cardZoneOccupied) ctx.globalAlpha = 0.35;
+
     this.handBoxes = [];
     this._hoveredCard = -1;
 
@@ -518,9 +526,9 @@ export class UI {
 
       const x = startX + i * (CARD_W + GAP);
 
-      // Hover lift — card rises 18px when mouse is over it
+      // Hover lift — disabled during battle so cards don't jump when aiming
       const mx = this._mouseX, my = this._mouseY;
-      const isHovered = mx >= x && mx <= x + cardDrawW && my >= baseY - 20 && my <= baseY + CARD_H;
+      const isHovered = !this.battleMode && mx >= x && mx <= x + cardDrawW && my >= baseY - 20 && my <= baseY + CARD_H;
       if (isHovered) this._hoveredCard = i;
       const y = baseY - (isHovered ? 18 : 0);
 
@@ -676,6 +684,8 @@ export class UI {
     ctx.font = '11px monospace';
     ctx.textAlign = 'center';
     ctx.fillText('[Left-Click] Attack  |  [Right-Click / 1-4] Switch Card  |  [ESC] Pause', this.width / 2, this.height - 5);
+
+    ctx.restore(); // end cardZoneOccupied fade scope
   }
 
   // ───────────── PREP SCREEN ─────────────
