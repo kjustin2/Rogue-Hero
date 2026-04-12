@@ -24,6 +24,8 @@ export const CATEGORY_LABELS = {
   flash:       'Hit Flash',
   deathBurst:  'Death Burst',
   aura:        'Aura',
+  killEffect:  'Kill Effect',
+  title:       'Title',
 };
 
 export const BOX_TIERS = {
@@ -31,6 +33,14 @@ export const BOX_TIERS = {
   silver:    { cost: 150,  label: 'Silver Box',    color: '#aaaacc', glowColor: '#ddddff' },
   gold:      { cost: 400,  label: 'Gold Box',      color: '#ddaa00', glowColor: '#ffdd44' },
   prismatic: { cost: 1200, label: 'Prismatic Box', color: '#cc44ff', glowColor: '#ff88ff' },
+  shadowed:  { cost: 250,  label: 'Shadowed Box',  color: '#2a1a44', glowColor: '#9955ee',
+               categoryFilter: ['aura','flash','deathBurst','killEffect'] },
+  elemental: { cost: 300,  label: 'Elemental Box', color: '#103020', glowColor: '#44ee88',
+               categoryFilter: ['bodyColor','trail','aura'] },
+  infernal:  { cost: 350,  label: 'Infernal Box',  color: '#3a0800', glowColor: '#ff5511',
+               categoryFilter: ['bodyColor','trail','flash','deathBurst'] },
+  shapebox:  { cost: 200,  label: 'Shape Box',     color: '#0f1830', glowColor: '#4499ff',
+               categoryFilter: ['shape','outlineColor'] },
 };
 
 export const BOX_WEIGHTS = {
@@ -38,6 +48,10 @@ export const BOX_WEIGHTS = {
   silver:    { common: 30,  uncommon: 40, rare: 24, legendary: 5,   superleg: 1   },
   gold:      { common: 0,   uncommon: 20, rare: 55, legendary: 23,  superleg: 2   },
   prismatic: { common: 0,   uncommon: 0,  rare: 30, legendary: 60,  superleg: 10  },
+  shadowed:  { common: 0,   uncommon: 30, rare: 52, legendary: 16,  superleg: 2   },
+  elemental: { common: 20,  uncommon: 40, rare: 32, legendary: 7,   superleg: 1   },
+  infernal:  { common: 10,  uncommon: 35, rare: 42, legendary: 11,  superleg: 2   },
+  shapebox:  { common: 40,  uncommon: 38, rare: 18, legendary: 3,   superleg: 1   },
 };
 
 // ── Cosmetic Definitions ────────────────────────────────────────────────────────
@@ -218,6 +232,240 @@ export const CosmeticDefinitions = [
   {
     id:'aura_reactive', name:'Reactive Crown', category:'aura', rarity:'superleg', value:'reactive', animated:true,
   },
+
+  // ── NEW BODY COLORS ──
+  { id:'body_sakura',    name:'Sakura Pink',  category:'bodyColor', rarity:'common',    value:'#ffb8c6' },
+  { id:'body_forest',    name:'Forest',       category:'bodyColor', rarity:'common',    value:'#2d5a1b' },
+  { id:'body_rust',      name:'Rust',         category:'bodyColor', rarity:'common',    value:'#8b4513' },
+  { id:'body_ivory',     name:'Ivory',        category:'bodyColor', rarity:'common',    value:'#f0ead6' },
+  { id:'body_magenta',   name:'Magenta',      category:'bodyColor', rarity:'uncommon',  value:'#ee00cc' },
+  { id:'body_storm',     name:'Storm Grey',   category:'bodyColor', rarity:'uncommon',  value:'#4a5568' },
+  { id:'body_lime2',     name:'Limelight',    category:'bodyColor', rarity:'uncommon',  value:'#aaff00' },
+  { id:'body_ocean',     name:'Deep Ocean',   category:'bodyColor', rarity:'rare',      value:'#002244' },
+  { id:'body_neon_yel',  name:'Neon Yellow',  category:'bodyColor', rarity:'rare',      value:'#ddff00' },
+  {
+    id:'body_starfield', name:'Starfield', category:'bodyColor', rarity:'legendary', value:null, animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      ctx.fillStyle='#010110'; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      for(let i=0;i<8;i++){
+        const a=(i/8)*Math.PI*2+t*0.18;
+        const d=r*(0.25+0.55*((i*0.618)%1));
+        const alpha=0.4+0.6*Math.sin(t*2.5+i*1.3);
+        ctx.fillStyle=`rgba(255,255,255,${alpha.toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(x+Math.cos(a+(i*1.31))*d, y+Math.sin(a+(i*1.31))*d, 1.5, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  },
+  {
+    id:'body_lava', name:'Lava Flow', category:'bodyColor', rarity:'legendary', value:null, animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      const h=(t*25)%360;
+      const g=ctx.createRadialGradient(x,y,0,x,y,r);
+      g.addColorStop(0,`hsl(${h},100%,65%)`);
+      g.addColorStop(0.55,`hsl(${(h+18)%360},90%,38%)`);
+      g.addColorStop(1,'#110000');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+    }
+  },
+  {
+    id:'body_nebula', name:'Nebula', category:'bodyColor', rarity:'superleg', value:null, animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      const h=(t*12)%360;
+      const g=ctx.createRadialGradient(x-r*0.3,y-r*0.2,0,x,y,r);
+      g.addColorStop(0,`hsl(${(h+60)%360},85%,62%)`);
+      g.addColorStop(0.5,`hsl(${h},90%,30%)`);
+      g.addColorStop(1,`hsl(${(h+120)%360},70%,12%)`);
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.fill();
+      for(let i=0;i<5;i++){
+        const sa=(i/5)*Math.PI*2+t*0.35;
+        const sd=r*(0.35+0.45*((i*0.7+0.1)%1));
+        const alpha=0.25+0.35*Math.sin(t*2.2+i);
+        ctx.fillStyle=`rgba(255,255,255,${alpha.toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(x+Math.cos(sa)*sd, y+Math.sin(sa)*sd, 1.5, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  },
+
+  // ── NEW OUTLINE COLORS ──
+  { id:'outline_neon_grn',  name:'Neon Green',    category:'outlineColor', rarity:'rare',      value:'#00ff44' },
+  { id:'outline_gold_foil', name:'Gold Foil',     category:'outlineColor', rarity:'uncommon',  value:'#ccaa33' },
+  {
+    id:'outline_dashed', name:'Dashed Ring', category:'outlineColor', rarity:'uncommon', value:'#8888ff', animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      ctx.save(); ctx.setLineDash([5,5]); ctx.lineDashOffset=-t*18;
+      ctx.strokeStyle='#8888ff'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+      ctx.setLineDash([]); ctx.restore();
+    }
+  },
+  {
+    id:'outline_double', name:'Double Ring', category:'outlineColor', rarity:'rare', value:'#44aaff', animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      ctx.strokeStyle='rgba(68,170,255,0.75)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+      ctx.strokeStyle='rgba(68,170,255,0.3)'; ctx.lineWidth=5;
+      ctx.beginPath(); ctx.arc(x,y,r+5,0,Math.PI*2); ctx.stroke();
+    }
+  },
+  {
+    id:'outline_ghost', name:'Ghost Flicker', category:'outlineColor', rarity:'legendary', value:'#ccccff', animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      const flicker=Math.sin(t*47)>-0.15?1:0;
+      ctx.strokeStyle=`rgba(200,200,255,${flicker*0.85})`; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+    }
+  },
+  {
+    id:'outline_gradient', name:'Gradient Band', category:'outlineColor', rarity:'legendary', value:'#ff8844', animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      ctx.strokeStyle=`hsl(${(t*45)%360},100%,62%)`; ctx.lineWidth=2.5;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+    }
+  },
+  {
+    id:'outline_ice_spikes', name:'Ice Spikes', category:'outlineColor', rarity:'rare', value:'#88ddff', animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      const lw=1.5+Math.pow(Math.abs(Math.sin(t*5.5)),2)*2.5;
+      ctx.strokeStyle='#88ddff'; ctx.lineWidth=lw;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+    }
+  },
+  {
+    id:'outline_void_drain', name:'Void Drain', category:'outlineColor', rarity:'superleg', value:'#220033', animated:true,
+    animFn:(ctx,x,y,r,t)=>{
+      const g=ctx.createRadialGradient(x,y,r-2,x,y,r+14);
+      g.addColorStop(0,'rgba(0,0,0,0)');
+      g.addColorStop(0.45,'rgba(30,0,50,0.55)');
+      g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(x,y,r+14,0,Math.PI*2); ctx.fill();
+      ctx.strokeStyle='rgba(120,0,200,0.65)'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+    }
+  },
+
+  // ── NEW SHAPES ──
+  { id:'shape_octagon',  name:'Octagon',    category:'shape', rarity:'uncommon', value:'octagon'  },
+  { id:'shape_lightning',name:'Lightning',  category:'shape', rarity:'rare',     value:'lightning'},
+  { id:'shape_shield',   name:'Shield',     category:'shape', rarity:'rare',     value:'shield'   },
+  { id:'shape_leaf',     name:'Leaf',       category:'shape', rarity:'uncommon', value:'leaf'     },
+  { id:'shape_comet',    name:'Comet',      category:'shape', rarity:'rare',     value:'comet'    },
+  {
+    id:'shape_ripple', name:'Ripple', category:'shape', rarity:'legendary', value:'ripple', animated:true,
+    animFn:(ctx,x,y,r,t,fillColor)=>{
+      const pts=48;
+      ctx.beginPath();
+      for(let i=0;i<=pts;i++){
+        const a=(i/pts)*Math.PI*2;
+        const wave=1+0.2*Math.sin(a*5+t*5);
+        const px=x+Math.cos(a)*r*wave, py=y+Math.sin(a)*r*wave;
+        if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ctx.closePath(); ctx.fillStyle=fillColor||'#44dd88'; ctx.fill();
+    }
+  },
+  {
+    id:'shape_vortex', name:'Vortex', category:'shape', rarity:'superleg', value:'vortex', animated:true,
+    animFn:(ctx,x,y,r,t,fillColor)=>{
+      const pts=6, rot=t*2.2;
+      ctx.beginPath();
+      for(let i=0;i<pts*2;i++){
+        const a=(i/(pts*2))*Math.PI*2+rot;
+        const rr=i%2===0?r:r*0.36;
+        const px=x+Math.cos(a)*rr, py=y+Math.sin(a)*rr;
+        if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+      }
+      ctx.closePath(); ctx.fillStyle=fillColor||'#44dd88'; ctx.fill();
+    }
+  },
+
+  // ── NEW TRAILS ──
+  { id:'trail_cherry',   name:'Cherry Blossom', category:'trail', rarity:'uncommon',  value:'rgba(255,180,210,0.42)' },
+  { id:'trail_lightning2',name:'Lightning',     category:'trail', rarity:'rare',      value:'rgba(140,180,255,0.62)' },
+  { id:'trail_molten',   name:'Molten',         category:'trail', rarity:'legendary', value:'rgba(255,130,0,0.68)'   },
+  { id:'trail_acid',     name:'Acid',           category:'trail', rarity:'rare',      value:'rgba(120,255,0,0.58)'   },
+  {
+    id:'trail_oil', name:'Oil Slick', category:'trail', rarity:'rare', value:'rgba(40,0,60,0.6)', animated:true,
+    getColor:(t)=>`hsla(${(t*90+260)%360},70%,32%,0.65)`
+  },
+  {
+    id:'trail_rainbow2', name:'Rainbow Streak', category:'trail', rarity:'legendary', value:'rgba(255,80,80,0.6)', animated:true,
+    getColor:(t)=>`hsl(${(t*55)%360},100%,58%)`
+  },
+  {
+    id:'trail_stardust', name:'Stardust', category:'trail', rarity:'superleg', value:'rgba(255,255,255,0.85)', animated:true,
+    getColor:()=>'rgba(255,255,255,0.85)'
+  },
+
+  // ── NEW HIT FLASHES ──
+  { id:'flash_crimson',  name:'Crimson Snap',  category:'flash', rarity:'uncommon', value:'#cc1122' },
+  { id:'flash_arctic',   name:'Arctic Blue',   category:'flash', rarity:'common',   value:'#88ddff' },
+  { id:'flash_emerald',  name:'Emerald',       category:'flash', rarity:'uncommon', value:'#00cc66' },
+  { id:'flash_dark',     name:'Dark Matter',   category:'flash', rarity:'rare',     value:'#110022' },
+  {
+    id:'flash_rainbow_pop', name:'Rainbow Pop', category:'flash', rarity:'rare', value:'#ff4444', animated:true,
+    getFlashColor:()=>`hsl(${((window._prismHitIndex2=(window._prismHitIndex2||0)+1)*55)%360},100%,62%)`
+  },
+  {
+    id:'flash_lightning_strike', name:'Lightning Strike', category:'flash', rarity:'legendary', value:'#eeeeff', animated:true,
+    getFlashColor:()=>'#eeeeff'
+  },
+  {
+    id:'flash_inferno', name:'Inferno', category:'flash', rarity:'legendary', value:'#ff6600', animated:true,
+    getFlashColor:()=>`hsl(${20+Math.random()*20},100%,${50+Math.random()*15}%)`
+  },
+
+  // ── NEW DEATH BURSTS ──
+  { id:'burst_crystal',  name:'Crystal Shatter', category:'deathBurst', rarity:'uncommon', value:'#88ddff' },
+  { id:'burst_smoke',    name:'Smoke Cloud',      category:'deathBurst', rarity:'common',   value:'#555566' },
+  { id:'burst_energy',   name:'Energy Ring',      category:'deathBurst', rarity:'rare',     value:'#44aaff' },
+  { id:'burst_cherry',   name:'Cherry Burst',     category:'deathBurst', rarity:'uncommon', value:'#ff88aa' },
+  { id:'burst_lightning2',name:'Lightning Cage',  category:'deathBurst', rarity:'legendary',value:'#aaccff' },
+  { id:'burst_fire_nova',name:'Fire Nova',         category:'deathBurst', rarity:'legendary',value:'#ff6600' },
+  {
+    id:'burst_confetti', name:'Confetti', category:'deathBurst', rarity:'rare', value:'#ff44aa',
+    burstColors:['#ff4444','#44ff88','#ffcc00','#44aaff','#ff44cc','#88ff44']
+  },
+  {
+    id:'burst_rainbow_nova', name:'Rainbow Nova', category:'deathBurst', rarity:'superleg', value:'#ffffff',
+    burstColors:['#ff2222','#ff8800','#ffff00','#44ff44','#44aaff','#aa44ff','#ff44ff']
+  },
+
+  // ── NEW AURAS ──
+  { id:'aura_ember',     name:'Ember Halo',    category:'aura', rarity:'common',    value:'ember_halo'    },
+  { id:'aura_shadow_veil',name:'Shadow Veil',  category:'aura', rarity:'uncommon',  value:'shadow_veil'   },
+  { id:'aura_holy',      name:'Holy Light',    category:'aura', rarity:'rare',      value:'holy_light'    },
+  { id:'aura_blood_moon',name:'Blood Moon',    category:'aura', rarity:'rare',      value:'blood_moon'    },
+  { id:'aura_thunder',   name:'Thunder Ring',  category:'aura', rarity:'rare',      value:'thunder_ring'  },
+  { id:'aura_frost_wreath',name:'Frost Wreath',category:'aura', rarity:'uncommon',  value:'frost_wreath'  },
+  { id:'aura_storm',     name:'Storm Cloud',   category:'aura', rarity:'legendary', value:'storm_cloud'   },
+  { id:'aura_crystal_crown',name:'Crystal Crown',category:'aura',rarity:'legendary',value:'crystal_crown' },
+  { id:'aura_supernova', name:'Supernova Ring',category:'aura', rarity:'superleg',  value:'supernova_ring'},
+
+  // ── KILL EFFECTS ──
+  { id:'kill_pop',      name:'Simple Pop',    category:'killEffect', rarity:'common',    value:'simple_pop',    duration:0.38 },
+  { id:'kill_sparks',   name:'Spark Burst',   category:'killEffect', rarity:'uncommon',  value:'spark_burst',   duration:0.50 },
+  { id:'kill_coins',    name:'Coin Shower',   category:'killEffect', rarity:'uncommon',  value:'coin_shower',   duration:0.70 },
+  { id:'kill_freeze',   name:'Freeze Frame',  category:'killEffect', rarity:'rare',      value:'freeze_frame',  duration:0.60 },
+  { id:'kill_skull',    name:'Skull Pop',     category:'killEffect', rarity:'rare',      value:'skull_pop',     duration:0.50 },
+  { id:'kill_supernova',name:'Supernova',     category:'killEffect', rarity:'legendary', value:'kill_supernova',duration:0.75 },
+  { id:'kill_rift',     name:'Rift Tear',     category:'killEffect', rarity:'superleg',  value:'rift_tear',     duration:0.90 },
+
+  // ── TITLES ──
+  { id:'title_relentless', name:'The Relentless', category:'title', rarity:'uncommon', value:'The Relentless', color:'#ff8844' },
+  { id:'title_glass_cannon',name:'Glass Cannon',  category:'title', rarity:'uncommon', value:'Glass Cannon',  color:'#44ddff' },
+  { id:'title_crash_artist',name:'Crash Artist',  category:'title', rarity:'uncommon', value:'Crash Artist',  color:'#ff4422' },
+  { id:'title_ghost',       name:'The Ghost',     category:'title', rarity:'rare',     value:'The Ghost',     color:'#ccccff' },
+  { id:'title_void_walker', name:'Void Walker',   category:'title', rarity:'rare',     value:'Void Walker',   color:'#9944ff' },
+  { id:'title_untouchable', name:'Untouchable',   category:'title', rarity:'rare',     value:'Untouchable',   color:'#88ffee' },
+  { id:'title_collector',   name:'The Collector', category:'title', rarity:'rare',     value:'The Collector', color:'#ffcc44' },
+  { id:'title_tempo_master',name:'Tempo Master',  category:'title', rarity:'legendary',value:'Tempo Master',  color:'#44aaff' },
+  { id:'title_berserker',   name:'Berserker',     category:'title', rarity:'legendary',value:'BERSERKER',     color:'#ff2222' },
+  { id:'title_champion',    name:'Champion',      category:'title', rarity:'legendary',value:'Champion',      color:'#ffdd44' },
+  {
+    id:'title_perfect', name:'Perfect', category:'title', rarity:'superleg', value:'✦ Perfect ✦', color:null,
+    animated:true,
+    animFn:null  // color handled in render using getPrismaticColor
+  },
 ];
 
 // Fast lookup by id
@@ -234,6 +482,7 @@ export function getPrismaticColor(t, sat=100, lig=60) {
 const RARITY_ORDER = ['common','uncommon','rare','legendary','superleg'];
 
 export function rollBox(tier, ownedIds = []) {
+  const tierInfo = BOX_TIERS[tier] || BOX_TIERS.bronze;
   const weights = BOX_WEIGHTS[tier] || BOX_WEIGHTS.bronze;
   const total = RARITY_ORDER.reduce((s,r) => s + (weights[r]||0), 0);
   let roll = Math.random() * total;
@@ -244,8 +493,13 @@ export function rollBox(tier, ownedIds = []) {
   }
 
   let pool = CosmeticDefinitions.filter(c => c.rarity === rarity);
+  if (tierInfo.categoryFilter) {
+    const filtered = pool.filter(c => tierInfo.categoryFilter.includes(c.category));
+    if (filtered.length > 0) pool = filtered;
+  }
   const unowned = pool.filter(c => !ownedIds.includes(c.id));
   if (unowned.length > 0) pool = unowned;
+  if (pool.length === 0) pool = CosmeticDefinitions.filter(c => c.rarity === rarity);
 
   return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -362,6 +616,49 @@ export function drawPlayerShape(ctx, x, y, r, shape) {
     case 'gear':
       _gear(ctx, x, y, r, 8);
       break;
+    case 'octagon':
+      _polygon(ctx, x, y, r, 8, -Math.PI/8);
+      break;
+    case 'lightning': {
+      const lw = r * 0.28;
+      ctx.beginPath();
+      ctx.moveTo(x + lw, y - r);
+      ctx.lineTo(x - lw * 0.5, y - r * 0.08);
+      ctx.lineTo(x + lw * 0.6, y - r * 0.08);
+      ctx.lineTo(x - lw, y + r);
+      ctx.lineTo(x + lw * 0.4, y + r * 0.08);
+      ctx.lineTo(x - lw * 0.6, y + r * 0.08);
+      ctx.closePath();
+      break;
+    }
+    case 'shield': {
+      ctx.beginPath();
+      ctx.moveTo(x, y - r);
+      ctx.lineTo(x + r * 0.9, y - r * 0.5);
+      ctx.lineTo(x + r * 0.9, y + r * 0.15);
+      ctx.bezierCurveTo(x + r * 0.9, y + r * 0.8, x, y + r, x, y + r);
+      ctx.bezierCurveTo(x, y + r, x - r * 0.9, y + r * 0.8, x - r * 0.9, y + r * 0.15);
+      ctx.lineTo(x - r * 0.9, y - r * 0.5);
+      ctx.closePath();
+      break;
+    }
+    case 'leaf': {
+      ctx.beginPath();
+      ctx.moveTo(x, y - r);
+      ctx.bezierCurveTo(x + r * 0.85, y - r * 0.5, x + r * 0.85, y + r * 0.5, x, y + r);
+      ctx.bezierCurveTo(x - r * 0.85, y + r * 0.5, x - r * 0.85, y - r * 0.5, x, y - r);
+      ctx.closePath();
+      break;
+    }
+    case 'comet': {
+      ctx.beginPath();
+      ctx.arc(x - r * 0.2, y, r * 0.65, 0, Math.PI * 2);
+      ctx.moveTo(x + r * 0.4, y - r * 0.25);
+      ctx.lineTo(x + r, y);
+      ctx.lineTo(x + r * 0.4, y + r * 0.25);
+      ctx.closePath();
+      break;
+    }
     default: // circle
       ctx.beginPath();
       ctx.arc(x, y, r, 0, Math.PI*2);
@@ -408,6 +705,198 @@ export function drawPlayerAura(ctx, x, y, r, auraValue, t, tempoValue=50) {
       const rr=r+8+tempoValue*0.12;
       ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI*2);
       ctx.strokeStyle=`rgba(${rgb},0.55)`; ctx.lineWidth=3; ctx.stroke();
+      break;
+    }
+    case 'ember_halo':
+      ctx.beginPath(); ctx.arc(x, y, r+7, 0, Math.PI*2);
+      ctx.strokeStyle='rgba(255,120,30,0.38)'; ctx.lineWidth=5; ctx.stroke();
+      break;
+    case 'shadow_veil':
+      ctx.beginPath(); ctx.ellipse(x, y+r*0.6, r*1.1, r*0.35, 0, 0, Math.PI*2);
+      ctx.fillStyle='rgba(0,0,0,0.28)'; ctx.fill();
+      break;
+    case 'holy_light': {
+      const beamG=ctx.createLinearGradient(x,y-r,x,y-r-40);
+      beamG.addColorStop(0,'rgba(255,240,160,0.45)');
+      beamG.addColorStop(1,'rgba(255,240,160,0)');
+      ctx.fillStyle=beamG;
+      ctx.fillRect(x-r*0.25, y-r-40, r*0.5, 42);
+      break;
+    }
+    case 'blood_moon': {
+      ctx.strokeStyle='rgba(180,0,30,0.55)'; ctx.lineWidth=3;
+      ctx.beginPath();
+      ctx.arc(x, y-r*0.55, r*0.65, Math.PI, Math.PI*2);
+      ctx.stroke();
+      break;
+    }
+    case 'thunder_ring': {
+      const tPulse=Math.sin(t*22);
+      if(tPulse>0.6){
+        ctx.strokeStyle=`rgba(160,200,255,${(tPulse-0.6)/0.4*0.8})`; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(x,y,r+5+tPulse*6,0,Math.PI*2); ctx.stroke();
+      }
+      break;
+    }
+    case 'frost_wreath': {
+      const count=6;
+      for(let i=0;i<count;i++){
+        const a=(i/count)*Math.PI*2+t*0.6;
+        const wx=x+Math.cos(a)*(r+9), wy=y+Math.sin(a)*(r+9);
+        ctx.strokeStyle='rgba(180,235,255,0.7)'; ctx.lineWidth=1;
+        for(let s=0;s<6;s++){
+          const sa=(s/6)*Math.PI*2;
+          ctx.beginPath(); ctx.moveTo(wx,wy);
+          ctx.lineTo(wx+Math.cos(sa)*5,wy+Math.sin(sa)*5); ctx.stroke();
+        }
+      }
+      break;
+    }
+    case 'storm_cloud': {
+      const cx2=x, cy2=y-r-10;
+      ctx.fillStyle='rgba(50,50,70,0.55)';
+      ctx.beginPath(); ctx.ellipse(cx2,cy2,r*0.65,r*0.25,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx2-r*0.25,cy2+3,r*0.4,r*0.18,0,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(cx2+r*0.22,cy2+4,r*0.38,r*0.17,0,0,Math.PI*2); ctx.fill();
+      if(Math.sin(t*7)>0.88){
+        ctx.strokeStyle='rgba(200,220,255,0.7)'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.moveTo(cx2,cy2+r*0.18); ctx.lineTo(cx2-4,cy2+r*0.38); ctx.lineTo(cx2+2,cy2+r*0.38); ctx.lineTo(cx2-2,cy2+r*0.55); ctx.stroke();
+      }
+      break;
+    }
+    case 'crystal_crown': {
+      const gemCount=4;
+      for(let i=0;i<gemCount;i++){
+        const a=(i/gemCount)*Math.PI*2+t*0.75;
+        const gx=x+Math.cos(a)*(r+10), gy=y+Math.sin(a)*(r+10);
+        const hue=(i/gemCount)*360+t*30;
+        ctx.fillStyle=`hsla(${hue%360},100%,70%,0.8)`;
+        ctx.beginPath(); ctx.moveTo(gx,gy-5); ctx.lineTo(gx+3.5,gy); ctx.lineTo(gx,gy+4); ctx.lineTo(gx-3.5,gy); ctx.closePath(); ctx.fill();
+      }
+      break;
+    }
+    case 'supernova_ring': {
+      const ringCount=3;
+      for(let ri=0;ri<ringCount;ri++){
+        const phase=(t*1.8+ri*0.55)%(Math.PI*2);
+        const rSize=r+8+Math.sin(phase)*12;
+        const hue=(ri/ringCount)*120+(tempoValue/100)*240;
+        ctx.strokeStyle=`hsla(${hue%360},100%,60%,${0.2+0.25*Math.sin(phase)})`;
+        ctx.lineWidth=2;
+        ctx.beginPath(); ctx.arc(x,y,rSize,0,Math.PI*2); ctx.stroke();
+      }
+      break;
+    }
+    default: break;
+  }
+}
+
+// ── Kill Effect Canvas Drawing ──────────────────────────────────────────────────
+
+export function drawKillEffect(ctx, x, y, effectId, elapsed) {
+  const cl = v => Math.max(0, Math.min(1, v));
+  const eOut = v => 1 - Math.pow(1 - v, 3);
+  switch (effectId) {
+    case 'simple_pop': {
+      const tp = cl(elapsed / 0.38);
+      const a = 1 - tp;
+      ctx.strokeStyle = `rgba(255,240,120,${a})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, y, eOut(tp) * 26, 0, Math.PI * 2); ctx.stroke();
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2;
+        const d = eOut(tp) * 30;
+        ctx.fillStyle = `rgba(255,210,70,${a})`;
+        ctx.beginPath(); ctx.arc(x + Math.cos(ang) * d, y + Math.sin(ang) * d, 3, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
+    case 'spark_burst': {
+      const tp = cl(elapsed / 0.5);
+      const a = 1 - tp;
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2;
+        const len = (30 + i * 7) * tp;
+        ctx.strokeStyle = `rgba(120,190,255,${a})`; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x, y);
+        ctx.lineTo(x + Math.cos(ang) * len, y + Math.sin(ang) * len); ctx.stroke();
+      }
+      break;
+    }
+    case 'coin_shower': {
+      for (let i = 0; i < 5; i++) {
+        const cx2 = x + (i - 2) * 13 + Math.sin(elapsed * 8 + i) * 5;
+        const cy2 = y - eOut(cl(elapsed / 0.25)) * 28 + elapsed * elapsed * 70 + i * 7;
+        const ca = Math.max(0, 1 - elapsed / 0.7);
+        ctx.fillStyle = `rgba(255,200,0,${ca})`;
+        ctx.beginPath(); ctx.arc(cx2, cy2, 5, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = `rgba(255,240,80,${ca * 0.7})`;
+        ctx.beginPath(); ctx.ellipse(cx2, cy2, 5, 2.5, elapsed * 5 + i, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
+    case 'freeze_frame': {
+      const tp = cl(elapsed / 0.6);
+      const a = 1 - tp;
+      for (let i = 0; i < 8; i++) {
+        const ang = (i / 8) * Math.PI * 2;
+        const d = eOut(cl(elapsed / 0.4)) * 36;
+        ctx.save();
+        ctx.translate(x + Math.cos(ang) * d, y + Math.sin(ang) * d);
+        ctx.rotate(ang);
+        ctx.fillStyle = `rgba(170,235,255,${a})`;
+        ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(3.5, 2); ctx.lineTo(-3.5, 2); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+      break;
+    }
+    case 'skull_pop': {
+      const tp = cl(elapsed / 0.5);
+      const a = 1 - tp;
+      const sz = 13 + tp * 5;
+      const sy = y - tp * 24;
+      ctx.strokeStyle = `rgba(220,220,220,${a})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(x, sy, sz, 0, Math.PI * 2); ctx.stroke();
+      ctx.lineWidth = 1.5;
+      for (const [ex, ey] of [[-sz * 0.3, -sz * 0.12], [sz * 0.3, -sz * 0.12]]) {
+        ctx.beginPath(); ctx.moveTo(x + ex - 3, sy + ey - 3); ctx.lineTo(x + ex + 3, sy + ey + 3); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x + ex + 3, sy + ey - 3); ctx.lineTo(x + ex - 3, sy + ey + 3); ctx.stroke();
+      }
+      break;
+    }
+    case 'kill_supernova': {
+      const tp = cl(elapsed / 0.75);
+      const a = 1 - tp;
+      if (elapsed < 0.14) {
+        ctx.fillStyle = `rgba(255,255,200,${(0.14 - elapsed) / 0.14 * 0.55})`;
+        ctx.beginPath(); ctx.arc(x, y, 65, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.strokeStyle = `rgba(255,190,40,${a})`; ctx.lineWidth = 3.5;
+      ctx.beginPath(); ctx.arc(x, y, eOut(tp) * 72, 0, Math.PI * 2); ctx.stroke();
+      for (let i = 0; i < 12; i++) {
+        const ang = (i / 12) * Math.PI * 2;
+        const d = eOut(tp) * 58;
+        ctx.fillStyle = `rgba(255,140,0,${a})`;
+        ctx.beginPath(); ctx.arc(x + Math.cos(ang) * d, y + Math.sin(ang) * d, 3.5, 0, Math.PI * 2); ctx.fill();
+      }
+      break;
+    }
+    case 'rift_tear': {
+      const a = 1 - cl(elapsed / 0.9);
+      const scale = elapsed < 0.22 ? elapsed / 0.22 : (elapsed < 0.62 ? 1.0 : 1 - (elapsed - 0.62) / 0.28);
+      ctx.save();
+      ctx.globalAlpha = a * 0.92;
+      const grd = ctx.createRadialGradient(x, y, 0, x, y, 32 * scale);
+      grd.addColorStop(0, '#000000');
+      grd.addColorStop(0.5, 'rgba(80,0,130,0.85)');
+      grd.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = grd;
+      ctx.beginPath(); ctx.ellipse(x, y, 32 * scale, 20 * scale, 0, 0, Math.PI * 2); ctx.fill();
+      for (let i = 0; i < 6; i++) {
+        const ang = (i / 6) * Math.PI * 2 + elapsed * 3.5;
+        ctx.fillStyle = `rgba(170,0,255,${a})`;
+        ctx.beginPath(); ctx.arc(x + Math.cos(ang) * 32 * scale, y + Math.sin(ang) * 20 * scale, 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.restore();
       break;
     }
     default: break;

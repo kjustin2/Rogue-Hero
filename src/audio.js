@@ -20,9 +20,9 @@ export class AudioSynthesizer {
                'Boss_Battle4.mp3','Boss_Battle5.mp3','Boss_Battle6.mp3'],
       normal: ['Normal_Battle.mp3','Normal_Battle2.mp3','Normal_Battle3.mp3',
                'Normal_Battle4.mp3','Normal_Battle5.mp3','Normal_Battle6.mp3',
-               'Normal_Battle7.mp3', 'Normal_Battle8.mp3'],
-      map:    ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3', 'Selection_Map4.mp3'],
-      menu:   ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3', 'Selection_Map4.mp3'],
+               'Normal_Battle7.mp3', 'Normal_Battle8.mp3', 'Normal_Battle9.mp3'],
+      map:    ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3', 'Selection_Map4.mp3', 'Selection_Map5.mp3'],
+      menu:   ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3', 'Selection_Map4.mp3', 'Selection_Map5.mp3'],
       intro:  ['Main_Menu.mp3', 'Main_Menu2.mp3', 'Main_Menu3.mp3', 'Main_Menu4.mp3', 'Main_Menu5.mp3'],
     };
     // Per-pool shuffle index so we don't repeat until all played

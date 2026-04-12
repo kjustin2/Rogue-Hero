@@ -143,7 +143,7 @@ export class Player extends Entity {
       this.trailTimer = 0.04;
       let trailColor;
       if (_teq && _teq.trailDef) {
-        if (_teq.trailDef.id === 'trail_prism' && _teq.trailDef.getColor) {
+        if (_teq.trailDef.getColor) {
           trailColor = _teq.trailDef.getColor(performance.now() / 1000);
         } else {
           trailColor = _teq.trailDef.value || tempo.stateColor();
@@ -256,7 +256,7 @@ export class Player extends Entity {
     const shapeName = eq?.shapeDef?.value || 'circle';
     let fillColor;
     if (this.hitFlash > 0) {
-      if (eq?.flashDef?.id === 'flash_prism' && eq.flashDef.getFlashColor) {
+      if (eq?.flashDef?.getFlashColor) {
         fillColor = eq.flashDef.getFlashColor();
       } else {
         fillColor = eq?.flashDef?.value || '#ffffff';

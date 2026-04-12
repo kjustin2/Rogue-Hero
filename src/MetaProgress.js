@@ -6,6 +6,7 @@ const STORAGE_KEY = 'rogue_hero_meta';
 const _defaultEquipped = () => ({
   bodyColor: null, outlineColor: null, shape: null,
   trail: null, flash: null, deathBurst: null, aura: null,
+  killEffect: null, title: null,
 });
 
 const DEFAULT_STATE = {

@@ -1848,72 +1848,91 @@ UI.prototype.drawCosmeticShop = function(ctx, meta, t) {
 
   this.cosmeticShopBoxes = [];
 
-  // Box buttons — 2×2 grid
-  const tiers = ['bronze','silver','gold','prismatic'];
-  const BW = Math.min(280, (this.width-80)/2);
-  const BH = 150;
-  const gap = 20;
-  const gridW = BW*2+gap;
-  const startX = (this.width-gridW)/2;
-  const startY = 130;
+  // Box buttons — 2-per-row grid, large cards
+  const tiers = ['bronze','silver','gold','prismatic','shadowed','elemental','infernal','shapebox'];
+  const perRow = 2;
+  const gap = 24;
+  const BW = Math.min(420, (this.width - 80 - gap) / perRow);
+  const BH = 200;
+  const gridW = BW * perRow + gap;
+  const startX = (this.width - gridW) / 2;
+  const startY = 124;
 
   for (let i = 0; i < tiers.length; i++) {
     const tier = tiers[i];
     const info = BOX_TIERS[tier];
-    const col = i%2, row = Math.floor(i/2);
-    const bx = startX + col*(BW+gap);
-    const by = startY + row*(BH+gap);
+    if (!info) continue;
+    const col = i % perRow, row = Math.floor(i / perRow);
+    const bx = startX + col * (BW + gap);
+    const by = startY + row * (BH + gap);
     const canAfford = meta.getGold() >= info.cost;
 
-    // Background
+    // Background + border
     ctx.fillStyle = canAfford ? '#111828' : '#0a0a12';
-    ctx.beginPath(); ctx.roundRect(bx, by, BW, BH, 10); ctx.fill();
-    ctx.strokeStyle = canAfford ? info.glowColor : '#333344'; ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Box icon
-    if (tier === 'prismatic') {
-      ctx.strokeStyle = getPrismaticColor(t, 100, 65); ctx.lineWidth = 2;
-    } else {
-      ctx.strokeStyle = info.color; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.roundRect(bx, by, BW, BH, 14); ctx.fill();
+    if (canAfford) {
+      ctx.save();
+      ctx.shadowColor = info.glowColor; ctx.shadowBlur = 14;
     }
-    ctx.fillStyle = info.color + '44';
-    ctx.fillRect(bx+18, by+14, 40, 40);
-    ctx.strokeRect(bx+18, by+14, 40, 40);
-    ctx.fillStyle = '#fff'; ctx.font = 'bold 11px monospace'; ctx.textAlign = 'left';
-    ctx.fillText('BOX', bx+28, by+38);
+    ctx.strokeStyle = canAfford ? info.glowColor : '#333344'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.roundRect(bx, by, BW, BH, 14); ctx.stroke();
+    if (canAfford) ctx.restore();
+
+    // Box icon (left side)
+    const iconX = bx + 22, iconY = by + 24, iconS = 64;
+    if (tier === 'prismatic') {
+      ctx.strokeStyle = getPrismaticColor(t, 100, 65); ctx.lineWidth = 2.5;
+      ctx.fillStyle = getPrismaticColor(t, 70, 30) + '55';
+    } else {
+      ctx.strokeStyle = info.color; ctx.lineWidth = 2.5;
+      ctx.fillStyle = info.color + '44';
+    }
+    ctx.beginPath(); ctx.roundRect(iconX, iconY, iconS, iconS, 8); ctx.fill();
+    ctx.beginPath(); ctx.roundRect(iconX, iconY, iconS, iconS, 8); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('BOX', iconX + iconS/2, iconY + iconS/2 + 6);
 
     // Tier name
-    ctx.fillStyle = tier === 'prismatic' ? getPrismaticColor(t, 90, 75) : info.glowColor;
-    ctx.font = 'bold 18px monospace'; ctx.textAlign = 'left';
-    ctx.fillText(info.label, bx+70, by+32);
+    const tx = bx + iconS + 36;
+    ctx.fillStyle = tier === 'prismatic' ? getPrismaticColor(t, 90, 80) : info.glowColor;
+    ctx.font = 'bold 22px monospace'; ctx.textAlign = 'left';
+    ctx.fillText(info.label, tx, by + 48);
 
     // Cost
-    ctx.fillStyle = canAfford ? PAL.GOLD : '#555566'; ctx.font = 'bold 15px monospace';
-    ctx.fillText(`${info.cost} Gold`, bx+70, by+52);
+    ctx.fillStyle = canAfford ? PAL.GOLD : '#555566'; ctx.font = 'bold 18px monospace';
+    ctx.fillText(`${info.cost} Gold`, tx, by + 74);
 
-    // Odds
-    ctx.fillStyle = PAL.MUTED; ctx.font = '11px monospace';
+    // Odds line
+    ctx.fillStyle = PAL.MUTED; ctx.font = '13px monospace';
     const w = _getTierWeightLine(tier);
-    ctx.fillText(w, bx+18, by+72);
+    if (w) ctx.fillText(w, bx + 22, by + 118);
+
+    // Category filter line
+    if (info.categoryFilter) {
+      ctx.fillStyle = '#6688aa'; ctx.font = '12px monospace';
+      ctx.fillText('Only: ' + info.categoryFilter.join(', '), bx + 22, by + 138);
+    }
 
     // Buy button
-    const btnX = bx+18, btnY = by+BH-44, btnW = BW-36, btnH = 32;
+    const btnX = bx + 16, btnY = by + BH - 52, btnW = BW - 32, btnH = 40;
     ctx.fillStyle = canAfford ? '#1a3a1a' : '#111111';
-    ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 6); ctx.fill();
-    ctx.strokeStyle = canAfford ? '#44ff88' : '#333'; ctx.lineWidth = 1.5; ctx.stroke();
-    ctx.fillStyle = canAfford ? '#44ff88' : '#444455'; ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center';
-    ctx.fillText(canAfford ? 'OPEN BOX' : 'Need more gold', bx+BW/2, btnY+21);
+    ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 8); ctx.fill();
+    ctx.strokeStyle = canAfford ? '#44ff88' : '#333'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(btnX, btnY, btnW, btnH, 8); ctx.stroke();
+    ctx.fillStyle = canAfford ? '#44ff88' : '#444455'; ctx.font = 'bold 17px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(canAfford ? 'OPEN BOX' : 'Need more gold', bx + BW/2, btnY + 27);
     if (canAfford) this.cosmeticShopBoxes.push({ x:btnX, y:btnY, w:btnW, h:btnH, action:'buy_box', tier });
   }
 
   // Back button
-  const backW=160, backH=40, backX=(this.width-backW)/2, backY=startY+2*(BH+gap)+20;
+  const rows = Math.ceil(tiers.length / perRow);
+  const backW = 200, backH = 48, backX = (this.width - backW) / 2;
+  const backY = startY + rows * (BH + gap) + 8;
   ctx.fillStyle = '#1a1a2a';
-  ctx.beginPath(); ctx.roundRect(backX, backY, backW, backH, 8); ctx.fill();
-  ctx.strokeStyle = '#445566'; ctx.lineWidth=1; ctx.stroke();
-  ctx.fillStyle = PAL.MUTED; ctx.font='bold 15px monospace'; ctx.textAlign='center';
-  ctx.fillText('← Back', this.width/2, backY+26);
+  ctx.beginPath(); ctx.roundRect(backX, backY, backW, backH, 10); ctx.fill();
+  ctx.strokeStyle = '#445566'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = PAL.MUTED; ctx.font = 'bold 18px monospace'; ctx.textAlign = 'center';
+  ctx.fillText('← Back', this.width/2, backY + 32);
   this.cosmeticShopBoxes.push({ x:backX, y:backY, w:backW, h:backH, action:'back' });
 };
 
@@ -2088,6 +2107,21 @@ UI.prototype.drawCosmeticPanel = function(ctx, charId, activeTab, meta, t) {
     } else if (cDef.category==='aura') {
       ctx.fillStyle='#44dd88'; ctx.beginPath(); ctx.arc(swX+swR,swY,swR*0.5,0,Math.PI*2); ctx.fill();
       drawPlayerAura(ctx,swX+swR,swY,swR*0.5,cDef.value,t,50);
+    } else if (cDef.category==='killEffect') {
+      // Starburst icon
+      ctx.strokeStyle=RARITY_COLORS[cDef.rarity]||'#fff'; ctx.lineWidth=1.5;
+      for(let _ki2=0;_ki2<8;_ki2++){
+        const _ka=((_ki2)/8)*Math.PI*2;
+        ctx.beginPath(); ctx.moveTo(swX+swR,swY);
+        ctx.lineTo(swX+swR+Math.cos(_ka)*swR,swY+Math.sin(_ka)*swR); ctx.stroke();
+      }
+      ctx.fillStyle=RARITY_COLORS[cDef.rarity]||'#fff';
+      ctx.beginPath(); ctx.arc(swX+swR,swY,4,0,Math.PI*2); ctx.fill();
+    } else if (cDef.category==='title') {
+      ctx.fillStyle=cDef.animated?getPrismaticColor(t,100,70):(cDef.color||'#ffdd88');
+      ctx.font='bold 9px monospace'; ctx.textAlign='left';
+      const _tv=cDef.value||'';
+      ctx.fillText(_tv.length>10?_tv.slice(0,10)+'…':_tv, swX, swY+4);
     } else {
       const pc=cDef.value&&cDef.value.startsWith('#')?cDef.value:'#44dd88';
       ctx.fillStyle=pc; ctx.beginPath(); ctx.arc(swX+swR,swY,swR,0,Math.PI*2); ctx.fill();

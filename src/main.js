@@ -16,7 +16,7 @@ import { MetaProgress, calculateScore } from './MetaProgress.js';
 import { Characters, CharacterList, DIFFICULTY_NAMES, DIFFICULTY_COLORS, DIFFICULTY_MODS } from './Characters.js';
 import { ItemManager, ItemDefinitions } from './Items.js';
 import { ProjectileManager } from './Projectile.js';
-import { CosmeticById, BOX_TIERS, rollBox, drawPlayerShape, drawPlayerAura, RARITY_COLORS, RARITY_LABELS, CATEGORY_LABELS, getPrismaticColor } from './Cosmetics.js';
+import { CosmeticById, BOX_TIERS, rollBox, drawPlayerShape, drawPlayerAura, RARITY_COLORS, RARITY_LABELS, CATEGORY_LABELS, getPrismaticColor, drawKillEffect } from './Cosmetics.js';
 
 // Expose defs for UI (avoids circular imports)
 window._itemDefs = ItemDefinitions;
@@ -154,6 +154,7 @@ let slowMoScale = 1.0;
 // Item reward state
 let itemChoices = [];
 let upgradeChoices = [];
+let killEffects = [];
 let shopCards = [];
 
 // Last-kill slow-mo
@@ -753,6 +754,7 @@ function spawnEnemies(node) {
   groundWaves.length = 0;
   beamFlashes.length = 0;
   channelState = null;
+  killEffects.length = 0;
   
   if (node.type === 'boss') {
     audio.playBGM('boss');
@@ -1143,8 +1145,10 @@ function buildEquippedCosmetics(eq) {
     shapeDef:   CosmeticById[eq.shape]       || null,
     trailDef:   CosmeticById[eq.trail]       || null,
     flashDef:   CosmeticById[eq.flash]       || null,
-    burstDef:   CosmeticById[eq.deathBurst]  || null,
-    auraDef:    CosmeticById[eq.aura]        || null,
+    burstDef:      CosmeticById[eq.deathBurst]  || null,
+    auraDef:       CosmeticById[eq.aura]        || null,
+    killEffectDef: CosmeticById[eq.killEffect]  || null,
+    titleDef:      CosmeticById[eq.title]       || null,
   };
 }
 
@@ -1718,7 +1722,12 @@ function update(logicDt, realDt) {
             particles.spawnDamageNumber(e.x, e.y - 60, 'BOSS DEFEATED!');
           }
           const _burstDef2 = window._equippedCosmetics?.burstDef;
-          if (_burstDef2) particles.spawnBurst(e.x, e.y, _burstDef2.value);
+          if (_burstDef2) {
+            if (_burstDef2.burstColors) { for (const col of _burstDef2.burstColors) particles.spawnBurst(e.x, e.y, col); }
+            else particles.spawnBurst(e.x, e.y, _burstDef2.value);
+          }
+          const _keDef2 = window._equippedCosmetics?.killEffectDef;
+          if (_keDef2) killEffects.push({ x: e.x, y: e.y, elapsed: 0, def: _keDef2 });
           continue;
         }
       }
@@ -1740,8 +1749,19 @@ function update(logicDt, realDt) {
       }
       // Death burst cosmetic
       const _burstDef = window._equippedCosmetics?.burstDef;
-      if (_burstDef) particles.spawnBurst(e.x, e.y, _burstDef.value);
+      if (_burstDef) {
+        if (_burstDef.burstColors) { for (const col of _burstDef.burstColors) particles.spawnBurst(e.x, e.y, col); }
+        else particles.spawnBurst(e.x, e.y, _burstDef.value);
+      }
+      const _keDef = window._equippedCosmetics?.killEffectDef;
+      if (_keDef) killEffects.push({ x: e.x, y: e.y, elapsed: 0, def: _keDef });
     }
+  }
+
+  // Update kill effects
+  for (let _ki = killEffects.length - 1; _ki >= 0; _ki--) {
+    killEffects[_ki].elapsed += logicDt;
+    if (killEffects[_ki].elapsed >= (killEffects[_ki].def.duration || 0.5)) killEffects.splice(_ki, 1);
   }
 
   // Update projectiles
@@ -3082,6 +3102,24 @@ function render() {
   projectiles.draw(renderer.ctx);
   player.draw(renderer.ctx, tempo);
   _drawOrbs(renderer.ctx);
+  // Kill effects
+  for (const _ke of killEffects) drawKillEffect(renderer.ctx, _ke.x, _ke.y, _ke.def.value, _ke.elapsed);
+  // Player title cosmetic
+  const _titleDef = window._equippedCosmetics?.titleDef;
+  if (_titleDef && gameState === 'playing') {
+    const _tctx = renderer.ctx;
+    const _tNow = performance.now() / 1000;
+    _tctx.save();
+    _tctx.font = 'bold 11px monospace';
+    _tctx.textAlign = 'center';
+    if (_titleDef.animated) {
+      _tctx.fillStyle = getPrismaticColor(_tNow, 100, 68);
+    } else {
+      _tctx.fillStyle = _titleDef.color || '#ffdd88';
+    }
+    _tctx.fillText(_titleDef.value, player.x, player.y - player.r - 9);
+    _tctx.restore();
+  }
   particles.draw(renderer.ctx, canvas.width, canvas.height);
   renderer.endShakeScope();
 
