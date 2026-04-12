@@ -93,7 +93,7 @@ export class Player extends Entity {
       }
 
       // Dodge trigger
-      if ((input.consumeKey(' ') || input.consumeKey('shift')) && this.dodgeCooldown <= 0) {
+      if (input.consumeKey(' ') && this.dodgeCooldown <= 0) {
         const fortifiedDodge = this.classPassives && this.classPassives.fortifiedDodge;
         // Can't dodge in Critical (90+) unless Fortified Dodge
         if (tempo.value >= 90 && !fortifiedDodge) {

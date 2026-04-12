@@ -2277,20 +2277,50 @@ function render() {
       ctx.restore();
     }
 
-    // Faint living silhouette behind menu content
+    // Prominent living silhouette — centered lower to avoid exit button
     {
       const _tSil = performance.now() / 1000;
-      const silX = canvas.width / 2, silY = canvas.height * 0.58;
-      const silPulse = 0.04 + Math.abs(Math.sin(_tSil * 0.7)) * 0.025;
+      const silX = canvas.width / 2, silY = canvas.height * 0.72;
+      // Outer glow rings — prismatic pulse
+      for (let _ring = 3; _ring >= 0; _ring--) {
+        const _rPhase = _tSil * 0.5 + _ring * 0.8;
+        const _rAlpha = (0.04 + Math.abs(Math.sin(_rPhase)) * 0.035) * (1 + _ring * 0.3);
+        const _rScale = 120 + _ring * 35 + Math.sin(_tSil * 0.9 + _ring) * 8;
+        ctx.save();
+        ctx.globalAlpha = _rAlpha;
+        ctx.fillStyle = getPrismaticColor(_tSil + _ring * 0.7, 90, 55 + _ring * 5);
+        ctx.beginPath();
+        ctx.arc(silX, silY, _rScale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      // Core silhouette — bigger, prismatic
+      const silPulse = 0.07 + Math.abs(Math.sin(_tSil * 0.7)) * 0.04;
       ctx.save();
       ctx.globalAlpha = silPulse;
-      ctx.fillStyle = '#5577ff';
-      drawPlayerShape(ctx, silX, silY, 100, 'circle');
+      ctx.fillStyle = getPrismaticColor(_tSil, 80, 65);
+      drawPlayerShape(ctx, silX, silY, 120, 'circle');
       ctx.fill();
       ctx.restore();
       ctx.save();
-      ctx.globalAlpha = silPulse * 1.4;
-      drawPlayerAura(ctx, silX, silY, 100, 'faint_blue', _tSil, 45);
+      ctx.globalAlpha = silPulse * 1.6;
+      drawPlayerAura(ctx, silX, silY, 120, 'reactive', _tSil, 75);
+      ctx.restore();
+    }
+
+    // Game icon — loaded once, drawn above title
+    if (!window._introIcon) {
+      window._introIcon = new Image();
+      window._introIcon.src = 'imgs/icon.ico';
+      window._introIconReady = false;
+      window._introIcon.onload = () => { window._introIconReady = true; };
+    }
+    if (window._introIconReady) {
+      const iconSize = 64;
+      ctx.save();
+      ctx.shadowColor = '#44aaff';
+      ctx.shadowBlur = 22;
+      ctx.drawImage(window._introIcon, canvas.width / 2 - iconSize / 2, 18, iconSize, iconSize);
       ctx.restore();
     }
 
