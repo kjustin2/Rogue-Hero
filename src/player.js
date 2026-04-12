@@ -113,12 +113,12 @@ export class Player extends Entity {
           const dmx = input.mouse.x - this.x, dmy = input.mouse.y - this.y;
           const dist = Math.sqrt(dmx * dmx + dmy * dmy);
           if (dist > 5) {
-            this.vx = (dmx / dist) * spd * 2.2;
-            this.vy = (dmy / dist) * spd * 2.2;
+            this.vx = (dmx / dist) * spd * 2.5;
+            this.vy = (dmy / dist) * spd * 2.5;
           } else if (this.vx !== 0 || this.vy !== 0) {
             const len = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
-            this.vx = (this.vx / len) * spd * 2.2;
-            this.vy = (this.vy / len) * spd * 2.2;
+            this.vx = (this.vx / len) * spd * 2.5;
+            this.vy = (this.vy / len) * spd * 2.5;
           }
           events.emit('DODGE');
           events.emit('PLAY_SOUND', 'dodge');

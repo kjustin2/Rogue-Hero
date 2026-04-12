@@ -241,7 +241,7 @@ export class Enemy extends Entity {
 export class Chaser extends Enemy {
   constructor(x, y) {
     super(x, y, 14, 55, 'chaser');
-    this.telegraphDuration = 0.5;
+    this.telegraphDuration = 0.35;
     this.sprintTimer = 0;
     this.sprintCooldown = 0;
   }
@@ -257,18 +257,18 @@ export class Chaser extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const baseSpd = 100 * (0.8 + (tempo.value / 100) * 0.5) * this.spdMult();
+    const baseSpd = 190 * (0.8 + (tempo.value / 100) * 0.5) * this.spdMult();
     // Sprint burst: 1.6× speed when player is at range and Tempo is Hot/Critical
     if (dist > 200 && tempo.value >= 70 && this.sprintCooldown <= 0 && this.state === 'chase') {
       this.sprintTimer = 0.5;
-      this.sprintCooldown = 4.0;
+      this.sprintCooldown = 3.0;
     }
     const spd = baseSpd * (this.sprintTimer > 0 ? 1.6 : 1.0);
 
     if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
-      if (dist <= 55 && this.attackCooldown <= 0) {
+      if (dist <= 75 && this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
       } else if (dist > 40) {
@@ -280,8 +280,8 @@ export class Chaser extends Enemy {
     if (this.state === 'telegraph') {
       this.telegraphTimer -= dt;
       if (this.telegraphTimer <= 0) {
-        if (dist <= 65) events.emit('ENEMY_MELEE_HIT', { damage: 2, source: this });
-        this.attackCooldown = 1.2;
+        if (dist <= 85) events.emit('ENEMY_MELEE_HIT', { damage: 1, source: this });
+        this.attackCooldown = 0.9;
         this.state = 'chase';
       }
     }
@@ -292,7 +292,7 @@ export class Chaser extends Enemy {
     if (this.state === 'telegraph') {
       const p = 1 - (this.telegraphTimer / this.telegraphDuration);
       ctx.beginPath();
-      ctx.arc(this.x, this.y, 65 * p, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, 85 * p, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 50, 50, ${0.15 + p * 0.15})`;
       ctx.fill();
       ctx.strokeStyle = `rgba(255, 0, 0, ${0.3 + p * 0.5})`;
@@ -311,7 +311,7 @@ export class Chaser extends Enemy {
 export class Sniper extends Enemy {
   constructor(x, y) {
     super(x, y, 11, 40, 'sniper');
-    this.telegraphDuration = 1.2;
+    this.telegraphDuration = 0.9;
     this.attackTargetAngle = 0;
     this.projectileManager = null;
     this.burstShotsLeft = 0;
@@ -329,14 +329,14 @@ export class Sniper extends Enemy {
     // PERF-04: early exit when far from player
     if (dx*dx+dy*dy > 900*900) return;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 65 * this.spdMult();
+    const spd = 85 * this.spdMult();
 
     if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
       if (this.hp < this.maxHp * 0.3) {
         // Flee at high speed when low HP
-        if (dist < 700) { this.x -= (dx / dist) * 110 * this.spdMult() * dt; this.y -= (dy / dist) * 110 * this.spdMult() * dt; }
+        if (dist < 700) { this.x -= (dx / dist) * 140 * this.spdMult() * dt; this.y -= (dy / dist) * 140 * this.spdMult() * dt; }
       } else if (dist < 150) { this.x -= (dx / dist) * spd * dt; this.y -= (dy / dist) * spd * dt; }
       else if (dist > 350) { this.x += (dx / dist) * spd * dt; this.y += (dy / dist) * spd * dt; }
       else if (this.attackCooldown <= 0) {
@@ -356,14 +356,14 @@ export class Sniper extends Enemy {
           this.projectileManager.spawn(
             this.x, this.y,
             Math.cos(this.attackTargetAngle), Math.sin(this.attackTargetAngle),
-            320, 3, '#88cc33', 'sniper'
+            400, 2, '#88cc33', 'sniper'
           );
         }
         this.burstShotsLeft--;
         if (this.burstShotsLeft > 0) {
           this.telegraphTimer = 0.25; // Short delay before second shot
         } else {
-          this.attackCooldown = 2.5;
+          this.attackCooldown = 1.8;
           this.state = 'chase';
         }
       }
@@ -397,7 +397,7 @@ export class Sniper extends Enemy {
 export class Bruiser extends Enemy {
   constructor(x, y) {
     super(x, y, 24, 220, 'bruiser');
-    this.telegraphDuration = 1.8;
+    this.telegraphDuration = 1.3;
   }
 
   updateLogic(dt, player, tempo, roomMap) {
@@ -413,20 +413,20 @@ export class Bruiser extends Enemy {
     if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
-      if (dist <= 120 && this.attackCooldown <= 0) {
+      if (dist <= 160 && this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
       } else {
-        this.x += (dx / dist) * 45 * this.spdMult() * dt;
-        this.y += (dy / dist) * 45 * this.spdMult() * dt;
+        this.x += (dx / dist) * 110 * this.spdMult() * dt;
+        this.y += (dy / dist) * 110 * this.spdMult() * dt;
       }
     }
 
     if (this.state === 'telegraph') {
       this.telegraphTimer -= dt;
       if (this.telegraphTimer <= 0) {
-        if (dist <= 150) events.emit('ENEMY_MELEE_HIT', { damage: 5, source: this });
-        this.attackCooldown = 3.0;
+        if (dist <= 190) events.emit('ENEMY_MELEE_HIT', { damage: 4, source: this });
+        this.attackCooldown = 2.2;
         this.state = 'chase';
       }
     }
@@ -437,14 +437,14 @@ export class Bruiser extends Enemy {
     if (this.state === 'telegraph') {
       const p = 1 - (this.telegraphTimer / this.telegraphDuration);
       ctx.beginPath();
-      ctx.arc(this.x, this.y, 150, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, 190, 0, Math.PI * 2);
       ctx.fillStyle = `rgba(255, 0, 0, ${p * 0.25})`;
       ctx.fill();
       ctx.strokeStyle = `rgba(255, 0, 0, ${0.4 + Math.sin(now / 60) * 0.3})`;
       ctx.lineWidth = 3 + p * 2;
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(this.x, this.y, 150 * p, 0, Math.PI * 2);
+      ctx.arc(this.x, this.y, 190 * p, 0, Math.PI * 2);
       ctx.strokeStyle = '#ff4444';
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -466,7 +466,7 @@ export class Bruiser extends Enemy {
 export class Turret extends Enemy {
   constructor(x, y) {
     super(x, y, 16, 60, 'turret');
-    this.telegraphDuration = 2.0;
+    this.telegraphDuration = 1.4;
     this.aimAngle = 0;
     this.shotsFired = 0;
     this.burstCount = 3;
@@ -503,14 +503,14 @@ export class Turret extends Enemy {
           this.projectileManager.spawn(
             this.x, this.y,
             Math.cos(this.aimAngle), Math.sin(this.aimAngle),
-            280, 2, '#ffaa00', 'turret'
+            360, 2, '#ffaa00', 'turret'
           );
         }
         this.shotsFired++;
         if (this.shotsFired < this.burstCount) {
           this.telegraphTimer = 0.3;
         } else {
-          this.attackCooldown = 3.0;
+          this.attackCooldown = 2.2;
           this.state = 'chase';
         }
       }
@@ -560,7 +560,7 @@ export class Turret extends Enemy {
 export class Teleporter extends Enemy {
   constructor(x, y) {
     super(x, y, 13, 45, 'teleporter');
-    this.telegraphDuration = 1.0;
+    this.telegraphDuration = 0.7;
     this.aoeTimer = 0;
     this.aoeActive = false;
     this.aoeX = 0;
@@ -582,7 +582,7 @@ export class Teleporter extends Enemy {
       if (this.aoeTimer <= 0) {
         this.aoeActive = false;
         const adx = player.x - this.aoeX, ady = player.y - this.aoeY;
-        if (adx * adx + ady * ady < 100 * 100) events.emit('ENEMY_MELEE_HIT', { damage: 3, source: this });
+        if (adx * adx + ady * ady < 100 * 100) events.emit('ENEMY_MELEE_HIT', { damage: 2, source: this });
       }
     }
 
@@ -590,8 +590,8 @@ export class Teleporter extends Enemy {
 
     if (this.state === 'chase') {
       if (dist > 60) {
-        this.x += (dx / dist) * 80 * this.spdMult() * dt;
-        this.y += (dy / dist) * 80 * this.spdMult() * dt;
+        this.x += (dx / dist) * 105 * this.spdMult() * dt;
+        this.y += (dy / dist) * 105 * this.spdMult() * dt;
       }
       if (dist <= 130 && this.attackCooldown <= 0) {
         this.state = 'telegraph';
@@ -609,7 +609,7 @@ export class Teleporter extends Enemy {
         const tAngle = Math.random() * Math.PI * 2;
         this.x = player.x + Math.cos(tAngle) * (200 + Math.random() * 150);
         this.y = player.y + Math.sin(tAngle) * (200 + Math.random() * 150);
-        this.attackCooldown = 3.5;
+        this.attackCooldown = 2.5;
         this.state = 'chase';
       }
     }
@@ -655,7 +655,7 @@ export class Teleporter extends Enemy {
 export class Swarm extends Enemy {
   constructor(x, y) {
     super(x, y, 8, 18, 'swarm');
-    this.telegraphDuration = 0.3;
+    this.telegraphDuration = 0.2;
   }
 
   updateLogic(dt, player, tempo, roomMap) {
@@ -667,12 +667,12 @@ export class Swarm extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 160 * this.spdMult();
+    const spd = 250 * this.spdMult();
 
     if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
-      if (dist <= 35 && this.attackCooldown <= 0) {
+      if (dist <= 45 && this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
       } else if (dist > 25) {
@@ -684,8 +684,8 @@ export class Swarm extends Enemy {
     if (this.state === 'telegraph') {
       this.telegraphTimer -= dt;
       if (this.telegraphTimer <= 0) {
-        if (dist <= 40) events.emit('ENEMY_MELEE_HIT', { damage: 1, source: this });
-        this.attackCooldown = 0.6;
+        if (dist <= 50) events.emit('ENEMY_MELEE_HIT', { damage: 1, source: this });
+        this.attackCooldown = 0.45;
         this.state = 'chase';
       }
     }
@@ -712,7 +712,7 @@ export class Healer extends Enemy {
   constructor(x, y) {
     super(x, y, 14, 50, 'healer');
     this.healTimer = 0;
-    this.healInterval = 3.0;
+    this.healInterval = 2.2;
     this.healRange = 200;
     this.healAmount = 5;
     this.healFlash = 0;
@@ -734,13 +734,13 @@ export class Healer extends Enemy {
     if (this.state === 'chase') {
       if (this.hp < this.maxHp * 0.3) {
         // Flee at full speed when low HP
-        if (dist < 700) { this.x -= (dx / dist) * 130 * this.spdMult() * dt; this.y -= (dy / dist) * 130 * this.spdMult() * dt; }
+        if (dist < 700) { this.x -= (dx / dist) * 165 * this.spdMult() * dt; this.y -= (dy / dist) * 165 * this.spdMult() * dt; }
       } else if (dist < 200) {
-        this.x -= (dx / dist) * 75 * this.spdMult() * dt;
-        this.y -= (dy / dist) * 75 * this.spdMult() * dt;
+        this.x -= (dx / dist) * 95 * this.spdMult() * dt;
+        this.y -= (dy / dist) * 95 * this.spdMult() * dt;
       } else if (dist > 400) {
-        this.x += (dx / dist) * 50 * this.spdMult() * dt;
-        this.y += (dy / dist) * 50 * this.spdMult() * dt;
+        this.x += (dx / dist) * 65 * this.spdMult() * dt;
+        this.y += (dy / dist) * 65 * this.spdMult() * dt;
       }
     }
 
@@ -809,11 +809,11 @@ export class Mirror extends Enemy {
 
     if (this.state === 'chase') {
       if (dist < 100) {
-        this.x -= (dx / dist) * 90 * this.spdMult() * dt;
-        this.y -= (dy / dist) * 90 * this.spdMult() * dt;
+        this.x -= (dx / dist) * 115 * this.spdMult() * dt;
+        this.y -= (dy / dist) * 115 * this.spdMult() * dt;
       } else if (dist > 200) {
-        this.x += (dx / dist) * 70 * this.spdMult() * dt;
-        this.y += (dy / dist) * 70 * this.spdMult() * dt;
+        this.x += (dx / dist) * 90 * this.spdMult() * dt;
+        this.y += (dy / dist) * 90 * this.spdMult() * dt;
       } else if (this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
@@ -825,8 +825,8 @@ export class Mirror extends Enemy {
       this.telegraphTimer -= dt;
       this.mirrorAngle = Math.atan2(player.y - this.y, player.x - this.x);
       if (this.telegraphTimer <= 0) {
-        if (dist <= 160) events.emit('ENEMY_MELEE_HIT', { damage: 3, source: this });
-        this.attackCooldown = 2.0;
+        if (dist <= 160) events.emit('ENEMY_MELEE_HIT', { damage: 2, source: this });
+        this.attackCooldown = 1.5;
         this.state = 'chase';
       }
     }
@@ -878,7 +878,7 @@ export class TempoVampire extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 105 * (0.7 + (tempo.value / 100) * 0.8) * this.spdMult();
+    const spd = 135 * (0.7 + (tempo.value / 100) * 0.8) * this.spdMult();
 
     if (this.state === 'idle' && dist < 520 && !player._phantomInkActive) this.state = 'chase';
 
@@ -900,7 +900,7 @@ export class TempoVampire extends Enemy {
           events.emit('DRAIN');
           this.drainFlash = 0.3;
         }
-        this.attackCooldown = 1.2;
+        this.attackCooldown = 0.9;
         this.state = 'chase';
       }
     }
@@ -950,7 +950,7 @@ export class ShieldDrone extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 70 * (0.7 + (tempo.value / 100) * 0.8) * this.spdMult();
+    const spd = 90 * (0.7 + (tempo.value / 100) * 0.8) * this.spdMult();
 
     if (dist > 70) {
       this.x += (dx / dist) * spd * dt;
@@ -958,7 +958,7 @@ export class ShieldDrone extends Enemy {
     }
 
     if (dist < this.r + player.r + 2 && this.attackCooldown <= 0) {
-      this.attackCooldown = 1.4;
+      this.attackCooldown = 1.0;
       events.emit('ENEMY_MELEE_HIT', { damage: 1, source: this });
     }
 
@@ -1032,12 +1032,12 @@ export class Phantom extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 140 * this.spdMult();
+    const spd = 230 * this.spdMult();
 
     if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
-      if (dist <= 40 && this.attackCooldown <= 0) {
+      if (dist <= 55 && this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
       } else if (dist > 30) {
@@ -1049,8 +1049,8 @@ export class Phantom extends Enemy {
     if (this.state === 'telegraph') {
       this.telegraphTimer -= dt;
       if (this.telegraphTimer <= 0) {
-        if (dist <= 50) events.emit('ENEMY_MELEE_HIT', { damage: 2, source: this });
-        this.attackCooldown = 1.0;
+        if (dist <= 65) events.emit('ENEMY_MELEE_HIT', { damage: 1, source: this });
+        this.attackCooldown = 0.7;
         this.state = 'chase';
       }
     }
@@ -1098,11 +1098,11 @@ export class Blocker extends Enemy {
     this.faceAngle = Math.atan2(dy, dx);
 
     if (dist > 60) {
-      this.x += (dx / dist) * 55 * this.spdMult() * dt;
-      this.y += (dy / dist) * 55 * this.spdMult() * dt;
+      this.x += (dx / dist) * 110 * this.spdMult() * dt;
+      this.y += (dy / dist) * 110 * this.spdMult() * dt;
     } else if (this.attackCooldown <= 0) {
-      this.attackCooldown = 2.0;
-      events.emit('ENEMY_MELEE_HIT', { damage: 4, source: this });
+      this.attackCooldown = 1.5;
+      events.emit('ENEMY_MELEE_HIT', { damage: 3, source: this });
     }
 
     if (roomMap) { const c = roomMap.clamp(this.x, this.y, this.r); this.x = c.x; this.y = c.y; }
@@ -1143,7 +1143,7 @@ export class Bomber extends Enemy {
     this._exploded = true;
     const dx = player.x - this.x, dy = player.y - this.y;
     if (dx * dx + dy * dy < 110 * 110) {
-      events.emit('ENEMY_MELEE_HIT', { damage: 4, source: this });
+      events.emit('ENEMY_MELEE_HIT', { damage: 3, source: this });
     }
     events.emit('SCREEN_SHAKE', { duration: 0.25, intensity: 0.5 });
     events.emit('PLAY_SOUND', 'crash');
@@ -1171,8 +1171,8 @@ export class Bomber extends Enemy {
       return;
     }
 
-    this.x += (dx / dist) * 70 * this.spdMult() * dt;
-    this.y += (dy / dist) * 70 * this.spdMult() * dt;
+    this.x += (dx / dist) * 130 * this.spdMult() * dt;
+    this.y += (dy / dist) * 130 * this.spdMult() * dt;
 
     if (roomMap) { const c = roomMap.clamp(this.x, this.y, this.r); this.x = c.x; this.y = c.y; }
   }
@@ -1201,7 +1201,7 @@ export class Bomber extends Enemy {
 export class Marksman extends Enemy {
   constructor(x, y) {
     super(x, y, 12, 45, 'marksman');
-    this.telegraphDuration = 1.5;
+    this.telegraphDuration = 1.1;
     this.aimAngle = 0;
     this.projectileManager = null;
     this._prevPlayerX = 0;
@@ -1218,7 +1218,7 @@ export class Marksman extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 60 * this.spdMult();
+    const spd = 80 * this.spdMult();
 
     // Track player velocity for predictive aim
     const pvx = (player.x - this._prevPlayerX) / dt;
@@ -1246,9 +1246,9 @@ export class Marksman extends Enemy {
         if (this.projectileManager) {
           this.projectileManager.spawn(this.x, this.y,
             Math.cos(this.aimAngle), Math.sin(this.aimAngle),
-            340, 3, '#ffaa44', 'marksman');
+            425, 2, '#ffaa44', 'marksman');
         }
-        this.attackCooldown = 2.2;
+        this.attackCooldown = 1.6;
         this.state = 'chase';
       }
     }
@@ -1279,7 +1279,7 @@ export class Marksman extends Enemy {
 export class BossBrawler extends Enemy {
   constructor(x, y) {
     super(x, y, 30, 350, 'boss_brawler');
-    this.dashTimer = 4.5;
+    this.dashTimer = 3.5;
     this.dashActive = false;
     this.dashDirX = 0;
     this.dashDirY = 0;
@@ -1314,7 +1314,7 @@ export class BossBrawler extends Enemy {
 
     this.dashTimer -= dt;
     if (this.dashTimer <= 0 && !this.dashActive) {
-      this.dashTimer = 4.5;
+      this.dashTimer = 3.5;
       if (dist > 1) {
         this.dashDirX = dx / dist;
         this.dashDirY = dy / dist;
@@ -1333,7 +1333,7 @@ export class BossBrawler extends Enemy {
         events.emit('ENEMY_MELEE_HIT', { damage: 2, source: this });
       }
     } else {
-      const spd = 135 * (0.7 + (tempo.value / 100) * 0.8) * this.spdMult();
+      const spd = 210 * (0.7 + (tempo.value / 100) * 0.8) * this.spdMult();
       if (dist > this.r + player.r) {
         this.x += (dx / dist) * spd * dt;
         this.y += (dy / dist) * spd * dt;
@@ -1409,14 +1409,14 @@ export class BossConductor extends Enemy {
       this.y += (dy / dist) * spd * 0.5 * dt;
     }
 
-    const baseRate = this.phase === 2 ? 1.8 : 2.8;
+    const baseRate = this.phase === 2 ? 1.3 : 2.0;
     const fireRate = Math.max(0.45, baseRate * (1.5 - (tempo.value / 100) * 0.6));
     this.fireTimer -= dt;
     if (this.fireTimer <= 0) {
       this.fireTimer = fireRate;
       if (this.projectileManager) {
         const shots = this.phase === 2 ? 5 : 3;
-        this.projectileManager.spawnSpread(this.x, this.y, player.x, player.y, shots, 0.45, 240, 2, '#aa44ff', 'conductor');
+        this.projectileManager.spawnSpread(this.x, this.y, player.x, player.y, shots, 0.45, 310, 2, '#aa44ff', 'conductor');
       }
     }
 
@@ -1892,8 +1892,8 @@ export class Juggernaut extends Enemy {
   constructor(x, y) {
     super(x, y, 28, 350, 'juggernaut');
     this.isElite = true; this._eliteAuraColor = '#aa44ff';
-    this.telegraphDuration = 1.2;
-    this.chargeCooldown = 5.0;
+    this.telegraphDuration = 0.9;
+    this.chargeCooldown = 3.5;
     this.chargeVx = 0;
     this.chargeVy = 0;
     this.chargeActive = false;
@@ -1935,13 +1935,13 @@ export class Juggernaut extends Enemy {
       this.y += this.chargeVy * dt;
       const cdx = player.x - this.x, cdy = player.y - this.y;
       if (Math.sqrt(cdx*cdx+cdy*cdy) < this.r + 20) {
-        events.emit('ENEMY_MELEE_HIT', { damage: 6, source: this });
+        events.emit('ENEMY_MELEE_HIT', { damage: 4, source: this });
       }
       if (this.chargeTimer <= 0 || (roomMap && (this.x < roomMap.FLOOR_X1+this.r || this.x > roomMap.FLOOR_X2-this.r || this.y < roomMap.FLOOR_Y1+this.r || this.y > roomMap.FLOOR_Y2-this.r))) {
         this.chargeActive = false;
         this.recoveryTimer = 0.8;
         this.canBeStaggered = true;
-        this.chargeCooldown = 5.0;
+        this.chargeCooldown = 3.5;
       }
       if (roomMap) { const c = roomMap.clamp(this.x, this.y, this.r); this.x = c.x; this.y = c.y; }
       return;
@@ -1954,7 +1954,7 @@ export class Juggernaut extends Enemy {
     this.canBeStaggered = false;
 
     if (this.state === 'chase') {
-      const spd = 40 * this.spdMult();
+      const spd = 80 * this.spdMult();
       const angle = Math.atan2(dy, dx);
       // Orbit at medium range
       const orbitDist = 200;
@@ -2070,7 +2070,7 @@ export class Stalker extends Enemy {
 
     if (this.state === 'chase') {
       this.isVisible = false;
-      const spd = 120 * this.spdMult();
+      const spd = 155 * this.spdMult();
       this.circleAngle += dt * 0.8;
       const targetX = player.x + Math.cos(this.circleAngle) * 250;
       const targetY = player.y + Math.sin(this.circleAngle) * 250;
@@ -2103,7 +2103,7 @@ export class Stalker extends Enemy {
         if (Math.sqrt(newDx*newDx+newDy*newDy) < this.r + 20) {
           events.emit('ENEMY_MELEE_HIT', { damage: 3, source: this });
         }
-        this.attackCooldown = 2.0;
+        this.attackCooldown = 1.4;
         this.state = 'chase';
         this.isVisible = false;
       }
@@ -2138,12 +2138,12 @@ export class Split extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 80 * this.spdMult();
+    const spd = 145 * this.spdMult();
 
     if (this.state === 'idle') this.state = 'chase';
 
     if (this.state === 'chase') {
-      if (dist <= 40 && this.attackCooldown <= 0) {
+      if (dist <= 55 && this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
       } else if (dist > 30) {
@@ -2155,8 +2155,8 @@ export class Split extends Enemy {
     if (this.state === 'telegraph') {
       this.telegraphTimer -= dt;
       if (this.telegraphTimer <= 0) {
-        if (dist <= 55) events.emit('ENEMY_MELEE_HIT', { damage: 1, source: this });
-        this.attackCooldown = 0.8;
+        if (dist <= 70) events.emit('ENEMY_MELEE_HIT', { damage: 1, source: this });
+        this.attackCooldown = 0.6;
         this.state = 'chase';
       }
     }
@@ -2195,12 +2195,12 @@ export class Splitter extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 75 * this.spdMult();
+    const spd = 140 * this.spdMult();
 
     if (this.state === 'idle' && dist < 900 && !player._phantomInkActive) this.state = 'chase';
 
     if (this.state === 'chase') {
-      if (dist <= 60 && this.attackCooldown <= 0) {
+      if (dist <= 80 && this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
       } else if (dist > 50) {
@@ -2212,8 +2212,8 @@ export class Splitter extends Enemy {
     if (this.state === 'telegraph') {
       this.telegraphTimer -= dt;
       if (this.telegraphTimer <= 0) {
-        if (dist <= 75) events.emit('ENEMY_MELEE_HIT', { damage: 2, source: this });
-        this.attackCooldown = 1.5;
+        if (dist <= 100) events.emit('ENEMY_MELEE_HIT', { damage: 2, source: this });
+        this.attackCooldown = 1.1;
         this.state = 'chase';
       }
     }
@@ -2276,7 +2276,7 @@ export class Corruptor extends Enemy {
     if (this.state === 'chase') {
       // Reposition only if player moves away
       if (dist > 350) {
-        const spd = 40 * this.spdMult();
+        const spd = 55 * this.spdMult();
         this.x += (dx/dist)*spd*dt;
         this.y += (dy/dist)*spd*dt;
       }
@@ -2284,7 +2284,7 @@ export class Corruptor extends Enemy {
       if (this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
-        this.attackCooldown = 4.0;
+        this.attackCooldown = 2.8;
       }
     }
 
@@ -2351,12 +2351,12 @@ export class BerserkerEnemy extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const baseSpd = this.isBerserk ? 110 : 55;
+    const baseSpd = this.isBerserk ? 200 : 120;
     const spd = baseSpd * this.spdMult();
 
     if (this.state === 'idle' && dist < 670 && !player._phantomInkActive) this.state = 'chase';
 
-    const hitRange = 70;
+    const hitRange = 95;
     if (this.state === 'chase') {
       if (dist <= hitRange && this.attackCooldown <= 0) {
         this.state = 'telegraph';
@@ -2416,7 +2416,7 @@ export class RicochetDrone extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const spd = 80 * this.spdMult();
+    const spd = 105 * this.spdMult();
 
     if (this.state === 'idle' && dist < 750 && !player._phantomInkActive) this.state = 'chase';
 
@@ -2434,7 +2434,7 @@ export class RicochetDrone extends Enemy {
       if (this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
-        this.attackCooldown = 3.0;
+        this.attackCooldown = 2.2;
       }
     }
 
@@ -2482,7 +2482,7 @@ export class Disruptor extends Enemy {
 
     const dx = player.x - this.x, dy = player.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const speed = 85 * this.spdMult();
+    const speed = 110 * this.spdMult();
 
     // Maintain medium engagement distance
     if (this.state !== 'telegraph') {
@@ -2583,7 +2583,7 @@ export class Timekeeper extends Enemy {
       if (this.attackCooldown <= 0) {
         this.state = 'telegraph';
         this.telegraphTimer = this.telegraphDuration;
-        this.attackCooldown = 5.0;
+        this.attackCooldown = 3.5;
       }
     }
 
@@ -2637,7 +2637,7 @@ export class Sentinel extends Enemy {
     this.rotAngle = Math.random() * Math.PI * 2;
     this.telegraphDuration = 1.2;
     this.phase = 1;
-    this._fireTimer = 3.2;
+    this._fireTimer = 2.3;
     this._chargePct = 0;
   }
 

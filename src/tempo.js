@@ -5,7 +5,7 @@ export class TempoSystem {
     this.value = 50;
     this.targetValue = 50;
     this.REST = 50;
-    this.DECAY_RATE = 5;
+    this.DECAY_RATE = 7;
     this.isCrashed = false;
     this.crashRecoverTimer = 0;
     this.sustainedTimer = 0;
@@ -71,7 +71,7 @@ export class TempoSystem {
     // Smoothly animate actual value towards target
     const diff = this.targetValue - this.value;
     if (Math.abs(diff) > 0.1) {
-      const moveSpeed = 40 * dt; // 40 points per second lerp speed
+      const moveSpeed = 55 * dt; // 55 points per second lerp speed
       if (Math.abs(diff) <= moveSpeed) {
         this.setValue(this.targetValue, true);
       } else {

@@ -633,6 +633,7 @@ function spawnEnemies(node) {
   if (node.type === 'boss') {
     if (f === 1) {
       enemies.push(new BossBrawler(cx, cy - 50));
+      enemies.push(new Chaser(rndX(), rndY()));
     } else if (f === 2) {
       enemies.push(new BossConductor(cx, cy - 50));
       enemies.push(new ShieldDrone(cx - 100, cy + 60));
@@ -648,6 +649,7 @@ function spawnEnemies(node) {
       enemies.push(new BossNecromancer(cx, cy - 50));
       enemies.push(new Phantom(cx - 120, cy + 60));
       enemies.push(new Phantom(cx + 120, cy + 60));
+      enemies.push(new Chaser(rndX(), rndY()));
     } else {
       enemies.push(new BossApex(cx, cy));
       enemies.push(new Blocker(cx - 160, cy));
@@ -661,7 +663,7 @@ function spawnEnemies(node) {
     const modType = modRoll < 0.35 ? 'armored' : (modRoll < 0.7 ? 'berserk' : 'regenerating');
     eliteEnemy.applyEliteModifier(modType);
     enemies.push(eliteEnemy);
-    const extra = 1 + Math.floor(f * 0.5);
+    const extra = 2 + Math.floor(f * 0.7);
     for (let i = 0; i < extra; i++) {
       if (f >= 4) enemies.push(rng() < 0.5 ? new Phantom(rndX(), rndY()) : new Blocker(rndX(), rndY()));
       else if (f >= 2) enemies.push(rng() < 0.4 ? new BerserkerEnemy(rndX(), rndY()) : new Chaser(rndX(), rndY()));
@@ -673,7 +675,7 @@ function spawnEnemies(node) {
     if (f >= 4 && rng() < 0.5) enemies.push(new Bomber(rndX(), rndY()));
     if (f >= 4 && rng() < 0.4) enemies.push(new Corruptor(rndX(), rndY()));
   } else {
-    const count = 2 + Math.floor(f * 0.7) + Math.floor(rng() * 2);
+    const count = 4 + Math.floor(f * 0.8) + Math.floor(rng() * 2);
     for (let i = 0; i < count; i++) {
       const roll = rng();
       if (f >= 5 && roll < 0.06) enemies.push(new Phantom(rndX(), rndY()));
@@ -699,7 +701,8 @@ function spawnEnemies(node) {
         enemies.push(new Swarm(sx, sy));
         enemies.push(new Swarm(sx + 20, sy + 15));
         enemies.push(new Swarm(sx - 15, sy + 20));
-        i += 2;
+        enemies.push(new Swarm(sx + 10, sy - 18));
+        i += 3;
       }
       else if (roll < 0.91) enemies.push(new Sniper(rndX(), rndY()));
       else enemies.push(new Chaser(rndX(), rndY()));
@@ -721,7 +724,7 @@ function spawnEnemies(node) {
   const actSpdRamp = f >= 5 ? 1.2 : (f >= 4 ? 1.1 : 1.0);
   const telegraphMult = f >= 5 ? 0.7 : (f >= 4 ? 0.82 : 1.0);
   for (const e of enemies) {
-    e.hp = Math.round(e.hp * (1 + (f - 1) * 0.25) * diff.hpMult * actHpRamp);
+    e.hp = Math.round(e.hp * (1 + (f - 1) * 0.18) * diff.hpMult * actHpRamp);
     e.maxHp = e.hp;
     e.difficultySpdMult = (diff.spdMult || 1.0) * actSpdRamp;
     if (f >= 4) e.telegraphDuration = Math.max(0.25, e.telegraphDuration * telegraphMult);
