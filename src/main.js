@@ -1549,7 +1549,7 @@ function update(logicDt, realDt) {
 
   // ── ITEM REWARD ──
   if (gameState === 'itemReward') {
-    if (input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
+    if (input.consumeKey('enter') || input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
     if (input.consumeClick()) {
       const itemId = ui.handleItemClick(input.mouse.x, input.mouse.y);
       if (itemId === '__skip') { gameState = 'map'; }
@@ -1571,7 +1571,7 @@ function update(logicDt, realDt) {
 
   // ── UPGRADE ──
   if (gameState === 'upgrade') {
-    if (input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
+    if (input.consumeKey('enter') || input.consumeKey(' ') || input.consumeKey('escape')) { gameState = 'map'; }
     if (input.consumeClick()) {
       const cardId = ui.handleUpgradeClick(input.mouse.x, input.mouse.y);
       if (cardId === '__skip') { gameState = 'map'; }
@@ -2476,7 +2476,10 @@ function render() {
     ctx.fillStyle = '#33dd66';
     ctx.font = 'bold 24px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('CONTINUE  ▶', canvas.width / 2, btnY + 35);
+    ctx.fillText('CONTINUE  ▶', canvas.width / 2, btnY + 29);
+    ctx.fillStyle = 'rgba(100,220,140,0.6)';
+    ctx.font = '11px monospace';
+    ctx.fillText('or press ENTER', canvas.width / 2, btnY + 46);
 
     // Volume control row
     const volY = btnY + btnH + 16;
@@ -4034,7 +4037,7 @@ function renderLootBoxOpen(ctx, t) {
       const pulse = 0.7 + 0.3 * Math.sin(t * 4);
       ctx.fillStyle = `rgba(180,210,255,${pulse})`;
       ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
-      ctx.fillText('[ Click to continue ]', cx, cardY + CH + 34);
+      ctx.fillText('[ Press ENTER or click ]', cx, cardY + CH + 34);
     }
   }
 }
@@ -4338,7 +4341,7 @@ function _drawVictoryScreen(ctx) {
     ctx.fillStyle = '#ffffff';
     ctx.font = '16px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('▶  Press ENTER / SPACE or click to continue', cx, canvas.height - 48);
+    ctx.fillText('▶  Press ENTER or click to continue', cx, canvas.height - 48);
     ctx.globalAlpha = 1;
   }
 }

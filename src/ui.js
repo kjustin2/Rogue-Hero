@@ -1231,7 +1231,7 @@ export class UI {
       const btnW = 260, btnH = 52;
       const btnX = this.width / 2 - btnW / 2;
       const btnY = this.height - btnH - 20;
-      this.skipItemBox = this._drawActionButton(ctx, '▶  SKIP', 'or press SPACE', btnX, btnY, btnW, btnH, '#1a1a3a');
+      this.skipItemBox = this._drawActionButton(ctx, '▶  SKIP', 'or press ENTER', btnX, btnY, btnW, btnH, '#1a1a3a');
     } else {
       this.skipItemBox = null;
     }
@@ -1334,7 +1334,7 @@ export class UI {
     const btnW = 280, btnH = 52;
     const btnX = this.width / 2 - btnW / 2;
     const btnY = this.height - btnH - 20;
-    this.skipUpgradeBox = this._drawActionButton(ctx, '▶  SKIP UPGRADE', 'or press SPACE', btnX, btnY, btnW, btnH, '#1a1a3a');
+    this.skipUpgradeBox = this._drawActionButton(ctx, '▶  SKIP UPGRADE', 'or press ENTER', btnX, btnY, btnW, btnH, '#1a1a3a');
   }
 
   handleUpgradeClick(mx, my) {
@@ -1674,7 +1674,7 @@ export class UI {
       ctx.fillText('▶  RETURN TO MENU', this.width / 2, btnY + 34);
       ctx.fillStyle = 'rgba(150,200,255,0.6)';
       ctx.font = '11px monospace';
-      ctx.fillText('click here  ·  or press ENTER / SPACE', this.width / 2, btnY + 50);
+      ctx.fillText('or press ENTER', this.width / 2, btnY + 50);
     }
   }
 
