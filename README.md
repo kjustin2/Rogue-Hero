@@ -43,7 +43,9 @@ The built installers and executables will be placed in the `dist/` directory.
 You can share the installers built in the `dist/` folder (such as the `.exe` file for Windows). Players simply download and run the installer to play the game natively on their computer, without needing a browser or any prerequisites.
 
 ### 2. Playing in a Web Browser (itch.io)
-Since the game is purely HTML5 and Canvas-based, you can also host it on the web effortlessly. Zip up the project folder (excluding the `node_modules` or `dist` directories) and upload it to a game-hosting platform like **itch.io**. Select the HTML5/Browser option, and players will be able to play your game instantly without downloading anything.
+Since the game is purely HTML5 and Canvas-based, it can be played directly in your browser. 
+
+🎮 **[Play it now on itch.io!](https://kjustin2.itch.io/rogue-hero)**
 
 ## Controls
 

@@ -11,3 +11,5 @@ Will you ride the razor's edge of maximum momentum for massive damage, or will y
 - **Pure Action, Zero Friction:** Play instantly! Built with a relentlessly fast HTML5 Canvas engine, you can jump straight into the heart-pounding action directly in your browser or on your desktop.
 
 *Find your rhythm. Build your deck. Become the Rogue-Hero.*
+
+🎮 **[Play Rogue-Hero now on itch.io!](https://kjustin2.itch.io/rogue-hero)**
